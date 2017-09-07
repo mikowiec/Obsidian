@@ -341,7 +341,6 @@ object Parser extends Parsers {
                 }
                 Transaction[ParsableType](nameString, args, returnType, availableTransactions, ensures,
                     endsInState, body).setLoc(t)
-
         }
     }
 

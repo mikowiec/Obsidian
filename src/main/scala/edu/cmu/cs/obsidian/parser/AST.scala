@@ -34,6 +34,7 @@ sealed abstract class Declaration[T]() extends AST[T] {
     val name: String
     val tag: DeclarationTag
 }
+
 sealed abstract class InvokableDeclaration[T]() extends Declaration[T] {
     val args: Seq[VariableDecl[T]]
     val retType: Option[T]
