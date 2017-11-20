@@ -38,7 +38,7 @@ sealed abstract class InvokableDeclaration[T]() extends Declaration[T] {
     val args: Seq[VariableDecl[T]]
     val retType: Option[T]
     val body: Seq[Statement[T]]
-    val ensuresState: Option[Set[String]]
+    val endsInState: Option[Set[String]]
 }
 
 /* Expressions */
@@ -92,7 +92,7 @@ case class Field[T](isConst: Boolean, typ: T, name: String) extends Declaration[
 
 case class Constructor[T](name: String,
                        args: Seq[VariableDecl[T]],
-                       ensuresState: Option[Set[String]],
+                          endsInState: Option[Set[String]],
                        body: Seq[Statement[T]]) extends InvokableDeclaration[T] {
     val retType: Option[T] = None
     val tag: DeclarationTag = ConstructorDeclTag
@@ -101,7 +101,7 @@ case class Func[T](name: String,
                 args: Seq[VariableDecl[T]],
                 retType: Option[T],
                 body: Seq[Statement[T]]) extends InvokableDeclaration[T] {
-    val ensuresState: Option[Set[String]] = None
+    val endsInState: Option[Set[String]] = None
     val tag: DeclarationTag = FuncDeclTag
 }
 case class Transaction[T](name: String,
@@ -109,7 +109,7 @@ case class Transaction[T](name: String,
                        retType: Option[T],
                        availableIn: Seq[Identifier],
                        ensures: Seq[Ensures[T]],
-                       ensuresState: Option[Set[String]],
+                          endsInState: Option[Set[String]],
                        body: Seq[Statement[T]]) extends InvokableDeclaration[T] {
     val tag: DeclarationTag = TransactionDeclTag
 }
