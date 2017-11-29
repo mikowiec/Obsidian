@@ -9,13 +9,13 @@ abstract class Error {
     val msg: String
 }
 
-case class SubTypingError(t1: ResolvedType, t2: ResolvedType) extends Error {
+case class SubTypingError(t1: ObsidianType, t2: ObsidianType) extends Error {
     val msg: String = s"Found type '$t1', but expected something of type '$t2'"
 }
 case class VariableUndefinedError(x: String) extends Error {
     val msg: String = s"Variable '$x' is undefined in the current context"
 }
-case class DifferentTypeError(e1: Expression[ResolvedType], t1: ResolvedType, e2: Expression[ResolvedType], t2: ResolvedType) extends Error {
+case class DifferentTypeError(e1: Expression, t1: ObsidianType, e2: Expression, t2: ObsidianType) extends Error {
     val msg: String = s"Expression '$e1' has type '$t1', and expression '$e2' has type '$t2'," +
         s"but these expressions must have the same type"
 }
@@ -38,10 +38,10 @@ case class FieldNotConstError(cName: String, fName: String) extends Error {
 case class FieldConstMutationError(fName: String) extends Error {
     val msg: String = s"Field '$fName' cannot be mutated because it is labeled 'const'"
 }
-case class DereferenceError(typ: ResolvedType) extends Error {
+case class DereferenceError(typ: ObsidianType) extends Error {
     val msg: String = s"Type '$typ' cannot be dereferenced"
 }
-case class SwitchError(typ: ResolvedType) extends Error {
+case class SwitchError(typ: ObsidianType) extends Error {
     val msg: String = s"Type '$typ' cannot be switched on"
 }
 case class MethodUndefinedError(receiver: SimpleType, name: String) extends Error {
@@ -60,7 +60,7 @@ case class StateUndefinedError(cName: String, sName: String) extends Error {
 case class ContractUndefinedError(cName: String) extends Error {
     val msg: String = s"No contract with name '$cName' is defined"
 }
-case class NonInvokeableError(t: ResolvedType) extends Error {
+case class NonInvokeableError(t: ObsidianType) extends Error {
     val msg: String = s"Cannot invoke functions or transactions on type '$t'"
 }
 case class WrongArityError(expected: Int, have: Int, methName: String) extends Error {
@@ -71,7 +71,7 @@ case class WrongArityError(expected: Int, have: Int, methName: String) extends E
             s"Too many arguments supplied to '$methName': expected '$expected', but found '$have'"
         }
 }
-case class MergeIncompatibleError(name: String, t1: ResolvedType, t2: ResolvedType) extends Error {
+case class MergeIncompatibleError(name: String, t1: ObsidianType, t2: ObsidianType) extends Error {
     val msg: String = s"Variable '$name' is incompatibly typed as both '$t1' and '$t2' after branch"
 }
 case class MustReturnError(methName: String) extends Error {
@@ -93,13 +93,13 @@ case class TransitionUpdateError(mustSupply: Set[String]) extends Error {
 case class AssignmentError() extends Error {
     val msg: String = s"Assignment target must be a variable or a field"
 }
-case class AlreadyKnowStateError(e: Expression[ResolvedType], sName: String) extends Error {
+case class AlreadyKnowStateError(e: Expression, sName: String) extends Error {
     val msg: String = s"'$e' is already known to be in state '$sName': a dynamic check is not needed"
 }
 case class LeakReturnValueError(methName: String) extends Error {
     val msg: String = s"Invocation of '$methName' leaks ownership of return value"
 }
-case class NoEffectsError(s: Statement[ResolvedType]) extends Error {
+case class NoEffectsError(s: Statement) extends Error {
     val msg: String = s"Statement '$s' has no side-effects"
 }
 case class StateSpecificSharedError() extends Error {
@@ -114,7 +114,7 @@ case class UnusedOwnershipError(name: String) extends Error {
 case class ConstructorNameError(contractName: String) extends Error {
     val msg: String = s"Invalid constructor name for contract '$contractName'"
 }
-case class CannotConvertPathError(badPart: String, expr: Expression[ResolvedType], typ: RawType) extends Error {
+case class CannotConvertPathError(badPart: String, expr: Expression, typ: UnpermissionedType) extends Error {
     val msg: String = s"Cannot convert path in type '$typ': '$badPart' is equivalent to" +
         s"a non-variable expression '$expr'"
 }

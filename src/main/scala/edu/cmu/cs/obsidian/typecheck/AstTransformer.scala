@@ -2,7 +2,7 @@ package edu.cmu.cs.obsidian.typecheck
 
 import edu.cmu.cs.obsidian.parser._
 
-import scala.collection.immutable.{TreeMap, TreeSet}
+import scala.collection.immutable.{HashSet, TreeMap, TreeSet}
 
 /* The only purpose of this compilation phase at the moment is to disambiguate
  * path-types. For example, If [T] is defined as a dependent type of [C], then
@@ -15,38 +15,42 @@ import scala.collection.immutable.{TreeMap, TreeSet}
 object AstTransformer {
 
     type FoldFunc[TFrom, TTo] = Int
-    type Context = Map[String, ParsableType]
-    val emptyContext = new TreeMap[String, ParsableType]()
+    type Context = Map[String, ObsidianType]
+    val emptyContext = new TreeMap[String, ObsidianType]()
 
-    def transformProgram(table: SymbolTable): Unit = {
+    def transformProgram(table: SymbolTable): SymbolTable = {
         for (c <- table.astRaw.contracts.map(_.name)) {
             transformContract(table, table.contract(c).get)
         }
-        val newImports = table.astRaw.imports.map(_.copy[ResolvedType]())
+        val newImports = table.astRaw.imports.map(_.copy())
 
         val newContracts = table.astRaw.contracts.map(c => table.contract(c.name).get.ast)
-        val newProgram = table.astRaw.copy[ResolvedType](imports = newImports, contracts = newContracts)
-        table.updateAstNode(newProgram)
+        val newProgram = table.astRaw.copy(imports = newImports, contracts = newContracts)
+
+        /* to make this faster, we could just mutate the AST nodes instead of
+         * making the symbol table again entirely */
+        new SymbolTable(newProgram)
+        //table.updateAstNode(newProgram)
     }
 
     def transformContract(table: SymbolTable, cTable: ContractTable): Unit = {
-        var newDecls: Seq[Declaration[ResolvedType]] = Nil
+        var newDecls: Seq[Declaration] = Nil
         for (d <- cTable.astRaw.declarations) {
-            val newDecl: Declaration[ResolvedType] = d.tag match {
+            val newDecl: Declaration = d.tag match {
                 case TransactionDeclTag =>
-                    transformTransaction(table, cTable, d.asInstanceOf[Transaction[ParsableType]])
+                    transformTransaction(table, cTable, d.asInstanceOf[Transaction])
                 case FuncDeclTag =>
-                    transformFunc(table, cTable, d.asInstanceOf[Func[ParsableType]])
+                    transformFunc(table, cTable, d.asInstanceOf[Func])
                 case ConstructorDeclTag =>
-                    transformConstructor(table, cTable, d.asInstanceOf[Constructor[ParsableType]])
+                    transformConstructor(table, cTable, d.asInstanceOf[Constructor])
                 case FieldDeclTag =>
-                    transformField(table, cTable, d.asInstanceOf[Field[ParsableType]])
+                    transformField(table, cTable, d.asInstanceOf[Field])
                 case StateDeclTag =>
-                    val stateTable = cTable.state(d.asInstanceOf[State[ParsableType]].name).get
+                    val stateTable = cTable.state(d.asInstanceOf[State].name).get
                     transformState(table, stateTable)
                     stateTable.ast
                 case ContractDeclTag =>
-                    val contractTable = cTable.childContract(d.asInstanceOf[Contract[ParsableType]].name).get
+                    val contractTable = cTable.childContract(d.asInstanceOf[Contract].name).get
                     transformContract(table, contractTable)
                     contractTable.ast
                 case TypeDeclTag => null
@@ -56,22 +60,22 @@ object AstTransformer {
 
         newDecls = newDecls.reverse
 
-        val newContract = cTable.astRaw.copy[ResolvedType](declarations = newDecls)
+        val newContract = cTable.astRaw.copy(declarations = newDecls)
         cTable.updateAstNode(newContract)
     }
 
     def transformState(table: SymbolTable, sTable: StateTable): Unit = {
-        var newDecls: Seq[Declaration[ResolvedType]] = Nil
+        var newDecls: Seq[Declaration] = Nil
         for (d <- sTable.astRaw.declarations) {
-            val newDecl: Declaration[ResolvedType] = d.tag match {
+            val newDecl: Declaration = d.tag match {
                 case TransactionDeclTag =>
-                    transformTransaction(table, sTable, d.asInstanceOf[Transaction[ParsableType]])
+                    transformTransaction(table, sTable, d.asInstanceOf[Transaction])
                 case FuncDeclTag =>
-                    transformFunc(table, sTable, d.asInstanceOf[Func[ParsableType]])
+                    transformFunc(table, sTable, d.asInstanceOf[Func])
                 case ConstructorDeclTag =>
-                    transformConstructor(table, sTable, d.asInstanceOf[Constructor[ParsableType]])
+                    transformConstructor(table, sTable, d.asInstanceOf[Constructor])
                 case FieldDeclTag =>
-                    transformField(table, sTable, d.asInstanceOf[Field[ParsableType]])
+                    transformField(table, sTable, d.asInstanceOf[Field])
                 case StateDeclTag => null
                 case ContractDeclTag => null
                 case TypeDeclTag => null
@@ -81,63 +85,63 @@ object AstTransformer {
 
         newDecls = newDecls.reverse
 
-        val newContract = sTable.astRaw.copy[ResolvedType](declarations = newDecls)
+        val newContract = sTable.astRaw.copy(declarations = newDecls)
         sTable.updateAstNode(newContract)
     }
 
     def transformField(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            f: Field[ParsableType]): Field[ResolvedType] = {
-        f.copy[ResolvedType](typ = transformType(table, lexicallyInsideOf, emptyContext, f.typ))
+            f: Field): Field = {
+        f.copy(typ = transformType(table, lexicallyInsideOf, emptyContext, f.typ))
     }
 
-    def transformExpression(e: Expression[ParsableType]): Expression[ResolvedType] = {
+    def transformExpression(e: Expression): Expression = {
         e match {
-            case v: Variable[ParsableType] => v.copy[ResolvedType]()
-            case n: NumLiteral[ParsableType] => n.copy[ResolvedType]()
-            case s: StringLiteral[ParsableType] => s.copy[ResolvedType]()
-            case _: TrueLiteral[ParsableType] => new TrueLiteral[ResolvedType]()
-            case _: FalseLiteral[ParsableType] => new FalseLiteral[ResolvedType]()
-            case _: This[ParsableType] => new This[ResolvedType]()
-            case _: Parent[ParsableType] => new Parent[ResolvedType]()
-            case c: Conjunction[ParsableType] =>
-                new Conjunction[ResolvedType](transformExpression(c.e1), transformExpression(c.e2))
-            case d: Disjunction[ParsableType] =>
-                new Disjunction[ResolvedType](transformExpression(d.e1), transformExpression(d.e2))
-            case n: LogicalNegation[ParsableType] =>
-                new LogicalNegation[ResolvedType](transformExpression(n.e))
-            case a: Add[ParsableType] =>
-                new Add[ResolvedType](transformExpression(a.e1), transformExpression(a.e2))
-            case s: Subtract[ParsableType] =>
-                new Subtract[ResolvedType](transformExpression(s.e1), transformExpression(s.e2))
-            case d: Divide[ParsableType] =>
-                new Divide[ResolvedType](transformExpression(d.e1), transformExpression(d.e2))
-            case m: Multiply[ParsableType] =>
-                new Multiply[ResolvedType](transformExpression(m.e1), transformExpression(m.e2))
-            case eq: Equals[ParsableType] =>
-                new Equals[ResolvedType](transformExpression(eq.e1), transformExpression(eq.e2))
-            case g: GreaterThan[ParsableType] =>
-                new GreaterThan[ResolvedType](transformExpression(g.e1), transformExpression(g.e2))
-            case g: GreaterThanOrEquals[ParsableType] =>
-                new GreaterThanOrEquals[ResolvedType](transformExpression(g.e1), transformExpression(g.e2))
-            case l: LessThan[ParsableType] =>
-                new LessThan[ResolvedType](transformExpression(l.e1), transformExpression(l.e2))
-            case l: LessThanOrEquals[ParsableType] =>
-                new LessThanOrEquals[ResolvedType](transformExpression(l.e1), transformExpression(l.e2))
-            case ne: NotEquals[ParsableType] =>
-                new NotEquals[ResolvedType](transformExpression(ne.e1), transformExpression(ne.e2))
-            case d: Dereference[ParsableType] => d.copy(e = transformExpression(d.e))
-            case i: LocalInvocation[ParsableType] =>
+            case v: Variable => v.copy()
+            case n: NumLiteral => n.copy()
+            case s: StringLiteral => s.copy()
+            case _: TrueLiteral => TrueLiteral()
+            case _: FalseLiteral => FalseLiteral()
+            case _: This => This()
+            case _: Parent => Parent()
+            case c: Conjunction =>
+                Conjunction(transformExpression(c.e1), transformExpression(c.e2))
+            case d: Disjunction =>
+                Disjunction(transformExpression(d.e1), transformExpression(d.e2))
+            case n: LogicalNegation =>
+                LogicalNegation(transformExpression(n.e))
+            case a: Add =>
+                Add(transformExpression(a.e1), transformExpression(a.e2))
+            case s: Subtract =>
+                Subtract(transformExpression(s.e1), transformExpression(s.e2))
+            case d: Divide =>
+                Divide(transformExpression(d.e1), transformExpression(d.e2))
+            case m: Multiply =>
+                Multiply(transformExpression(m.e1), transformExpression(m.e2))
+            case eq: Equals =>
+                Equals(transformExpression(eq.e1), transformExpression(eq.e2))
+            case g: GreaterThan =>
+                GreaterThan(transformExpression(g.e1), transformExpression(g.e2))
+            case g: GreaterThanOrEquals =>
+                GreaterThanOrEquals(transformExpression(g.e1), transformExpression(g.e2))
+            case l: LessThan =>
+                LessThan(transformExpression(l.e1), transformExpression(l.e2))
+            case l: LessThanOrEquals =>
+                LessThanOrEquals(transformExpression(l.e1), transformExpression(l.e2))
+            case ne: NotEquals =>
+                NotEquals(transformExpression(ne.e1), transformExpression(ne.e2))
+            case d: Dereference => d.copy(e = transformExpression(d.e))
+            case i: LocalInvocation =>
                 i.copy(args = i.args.map(eArg => transformExpression(eArg)))
-            case i: Invocation[ParsableType] =>
+            case i: Invocation =>
                 i.copy(recipient = transformExpression(i.recipient), args = i.args.map(eArg => transformExpression(eArg)))
-            case c: Construction[ParsableType] =>
+            case c: Construction =>
                 c.copy(args = c.args.map(eArg => transformExpression(eArg)))
         }
     }
 
-    def startContext(args: Seq[VariableDecl[ParsableType]]): Context = {
+    def startContext(args: Seq[VariableDecl]): Context = {
         var startContext = emptyContext
         for (a <- args) {
             startContext = startContext.updated(a.varName, a.typ)
@@ -148,8 +152,8 @@ object AstTransformer {
     def transformArgs(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            args: Seq[VariableDecl[ParsableType]]): Seq[VariableDecl[ResolvedType]] = {
-        var newArgs: Seq[VariableDecl[ResolvedType]] = Nil
+            args: Seq[VariableDecl]): Seq[VariableDecl] = {
+        var newArgs: Seq[VariableDecl] = Nil
         val context = startContext(args)
         for (a <- args) {
             val aNew = a.copy(typ = transformType(table, lexicallyInsideOf, context - a.varName, a.typ))
@@ -161,21 +165,21 @@ object AstTransformer {
     def transformTransaction(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            t: Transaction[ParsableType]): Transaction[ResolvedType] = {
+            t: Transaction): Transaction = {
         val context = startContext(t.args)
 
         val newRetType = t.retType.map(transformType(table, lexicallyInsideOf, context, _))
         val newArgs = transformArgs(table, lexicallyInsideOf, t.args)
 
-        val newEnsures = t.ensures.map(en => en.copy[ResolvedType](expr = transformExpression(en.expr)))
-        t.copy[ResolvedType](retType = newRetType, args = newArgs, ensures = newEnsures,
+        val newEnsures = t.ensures.map(en => en.copy(expr = transformExpression(en.expr)))
+        t.copy(retType = newRetType, args = newArgs, ensures = newEnsures,
                              body = transformBody(table, lexicallyInsideOf, context, t.body))
     }
 
     def transformConstructor(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            c: Constructor[ParsableType]): Constructor[ResolvedType] = {
+            c: Constructor): Constructor = {
 
         val newArgs = transformArgs(table, lexicallyInsideOf, c.args)
         val context = startContext(c.args)
@@ -186,7 +190,7 @@ object AstTransformer {
     def transformFunc(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            f: Func[ParsableType]): Func[ResolvedType] = {
+            f: Func): Func = {
 
         val newArgs = transformArgs(table, lexicallyInsideOf, f.args)
         val context = startContext(f.args)
@@ -201,7 +205,7 @@ object AstTransformer {
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
             inScope: Context,
-            b: Seq[Statement[ParsableType]]): Seq[Statement[ResolvedType]] = {
+            b: Seq[Statement]): Seq[Statement] = {
         b match {
             case Seq() => Seq()
             case s +: rest =>
@@ -214,7 +218,7 @@ object AstTransformer {
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
             context: Context,
-            s: Statement[ParsableType]): (Statement[ResolvedType], Context) = {
+            s: Statement): (Statement, Context) = {
         s match {
             case oldDecl@VariableDecl(typ, varName) =>
                 val newTyp = transformType(table, lexicallyInsideOf, context, typ)
@@ -249,31 +253,7 @@ object AstTransformer {
                 val newSwitch = oldSwitch.copy(e = transformExpression(e),
                                                cases = newCases).setLoc(oldSwitch)
                 (newSwitch, context)
-            case e: Expression[ParsableType] => (transformExpression(e), context)
-        }
-    }
-
-    /* adds the modifier from [t] to [tr], assuming that [table] is the
-     * symbol table of the type [tr] */
-    private def addModifier(
-                               tr: RawType,
-                               table: DeclarationTable,
-                               mods: Seq[TypeModifier]): ResolvedType = {
-
-        val defaultMod = table.contract.ast.mod match {
-            case Some(m) => m
-            case None => IsOwned()
-        }
-
-        /* if a reference is 'readonly', it is labeled as such; otherwise, it is
-         * 'owned'/'shared', based on the declaration of the contract itself */
-        if (mods.exists(_.isInstanceOf[IsReadOnly])) {
-            ReadOnlyRef(table, tr)
-        } else if (defaultMod.isInstanceOf[IsOwned]) {
-            OwnedRef(table, tr)
-        } else {
-            // TODO: are main contracts always deemed shared by the type system?
-            SharedRef(table, tr)
+            case e: Expression => (transformExpression(e), context)
         }
     }
 
@@ -281,24 +261,27 @@ object AstTransformer {
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
             context: Context,
-            t: ParsableType): ResolvedType = {
+            t: ObsidianType): ObsidianType = {
+
+        // We should only be transforming potentially-unresolved types, but we can't specify that statically because ASTs are used for resolved types too.
+        assert(t.isInstanceOf[PotentiallyUnresolvedType]);
         t match {
-            case ParsableBoolType() => BoolType()
-            case ParsableIntType() => IntType()
-            case ParsableStringType() => StringType()
-            case nonPrim@ParsableNonPrimitiveType(mods, ids) =>
-                val tCanonified = canonifyParsableType(table, context, nonPrim)
-                val result = resolveNonPrimitiveTypeContext(table, lexicallyInsideOf, tCanonified,
+            case BoolType() => BoolType()
+            case IntType() => IntType()
+            case StringType() => StringType()
+            case nonPrim@UnresolvedNonprimitiveType(mods, ids) =>
+                val tCanonified: UnresolvedNonprimitiveType = canonifyParsableType(table, context, nonPrim)
+                val result: TraverseResult = resolveNonPrimitiveTypeContext(table, lexicallyInsideOf, tCanonified,
                                                             new TreeSet(), context)
                 result match {
                     case Left(_) => BottomType()
-                    case Right((tr, declTable)) =>
-                        addModifier(tr, declTable, nonPrim.mods)
+                    case Right((unpermissionedType, declTable)) =>
+                        NonPrimitiveType(declTable, unpermissionedType, nonPrim.mods)
                 }
         }
     }
 
-    type TraverseResult = Either[Error, (RawType, DeclarationTable)]
+    type TraverseResult = Either[Error, (UnpermissionedType, DeclarationTable)]
 
     private def appendToPath(
             f: String,
@@ -315,12 +298,12 @@ object AstTransformer {
     private def canonifyParsableType(
             table: SymbolTable,
             context: Context,
-            t: ParsableNonPrimitiveType): ParsableNonPrimitiveType = {
+            t: UnresolvedNonprimitiveType): UnresolvedNonprimitiveType = {
         if (t.identifiers.length == 1) {
             val cName = t.identifiers.head
             table.contract(cName) match {
                 case Some(ct) => t
-                case None => ParsableNonPrimitiveType(t.mods, "this" +: t.identifiers)
+                case None => UnresolvedNonprimitiveType("this" +: t.identifiers, t.mods)
             }
         }
         if (t.identifiers.length == 2) {
@@ -339,23 +322,23 @@ object AstTransformer {
                 case None => ()
             }
 
-            ParsableNonPrimitiveType(t.mods, "this" +: t.identifiers)
+            UnresolvedNonprimitiveType("this" +: t.identifiers, t.mods)
 
         } else {
             if (context contains t.identifiers.head) t
-            else ParsableNonPrimitiveType(t.mods, "this" +: t.identifiers)
+            else UnresolvedNonprimitiveType("this" +: t.identifiers, t.mods)
         }
     }
 
-    /* [resolveRawType] returns either an error that was reached while checking
+    /* [resolveUnpermissionedType] returns either an error that was reached while checking
      * (if [tr] could not be traversed), or the declaration table of the type,
-     * as well as new raw type: this return value is only different from [tr]
+     * as well as new unpermissioned type: this return value is only different from [tr]
      * if [tr] starts with an implicit "this" (in this case, "this" is added) */
 
     private def resolveNonPrimitiveTypeContext(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            t: ParsableNonPrimitiveType,
+            t: UnresolvedNonprimitiveType,
             visitedLocalVars: Set[String],
             context: Context): TraverseResult = {
 
@@ -373,9 +356,10 @@ object AstTransformer {
             val pathRest = t.identifiers.tail
 
             if (pathHead == "this") {
-                val tNew = ParsableNonPrimitiveType(t.mods, pathRest)
+                val tNew = UnresolvedNonprimitiveType(pathRest, t.mods)
+                val emptySet = new HashSet[(DeclarationTable, String)]()
                 val result =
-                    resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, tNew, new TreeSet())
+                    resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, tNew, emptySet)
                 appendToPath("this", result)
             }
 
@@ -404,7 +388,7 @@ object AstTransformer {
             val newVisited = visitedLocalVars + pathHead
 
             val pathHeadType = context(pathHead) match {
-                case trNext: ParsableNonPrimitiveType => trNext
+                case trNext: UnresolvedNonprimitiveType => trNext
                 case prim =>
                     val primType = transformType(table, lexicallyInsideOf, context, prim)
                     return Left(DereferenceError(primType))
@@ -417,9 +401,10 @@ object AstTransformer {
                     case Right(travData) => travData._2
                 }
 
-            val tNew = ParsableNonPrimitiveType(t.mods, pathRest)
+            val tNew = UnresolvedNonprimitiveType(pathRest, t.mods)
 
-            val result = resolveNonPrimitiveTypeNoContext(table, newInsideOf, tNew, new TreeSet())
+            val emptySet = new HashSet[(DeclarationTable, String)]()
+            val result = resolveNonPrimitiveTypeNoContext(table, newInsideOf, tNew, emptySet)
 
             appendToPath(pathHead, result)
         }
@@ -428,7 +413,7 @@ object AstTransformer {
     private def resolveNonPrimitiveTypeNoContext(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            t: ParsableNonPrimitiveType,
+            t: UnresolvedNonprimitiveType,
             visitedFields: Set[(DeclarationTable, String)]): TraverseResult = {
 
         if (t.identifiers.length == 1) {
@@ -490,7 +475,7 @@ object AstTransformer {
             }
 
             val nonPrim = field.typ match {
-                case tNonPrim: ParsableNonPrimitiveType => tNonPrim
+                case tNonPrim: UnresolvedNonprimitiveType => tNonPrim
                 case prim =>
                     val tRes = transformType(table, lexicallyInsideOf, new TreeMap(), prim)
                     return Left(DereferenceError(tRes))

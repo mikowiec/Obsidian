@@ -3,6 +3,7 @@ package edu.cmu.cs.obsidian.parser
 import scala.util.parsing.input.{NoPosition, Position}
 import edu.cmu.cs.obsidian.lexer.Token
 import edu.cmu.cs.obsidian.parser.Parser.Identifier
+import edu.cmu.cs.obsidian.typecheck.ObsidianType
 
 trait HasLocation {
     var loc: Position = NoPosition
@@ -11,13 +12,13 @@ trait HasLocation {
     def setLoc(id: (String, Position)): this.type = { loc = id._2; this }
 }
 
-sealed abstract class AST[T]() extends HasLocation
+sealed abstract class AST() extends HasLocation
 
-sealed abstract class Statement[T]() extends AST[T]
+sealed abstract class Statement() extends AST
 
 /* All expressions are statements. We relegate the pruning of expressions
  * that don't have effects to a later analysis */
-sealed abstract class Expression[T]() extends Statement[T]
+sealed abstract class Expression() extends Statement
 
 /* this is to circumnavigate type erasure: it makes it possible to match on the exact
  * type of a Declarations at runtime */
@@ -30,108 +31,108 @@ object FuncDeclTag extends DeclarationTag
 object ConstructorDeclTag extends DeclarationTag
 object TransactionDeclTag extends DeclarationTag
 
-sealed abstract class Declaration[T]() extends AST[T] {
+sealed abstract class Declaration() extends AST {
     val name: String
     val tag: DeclarationTag
 }
 
-sealed abstract class InvokableDeclaration[T]() extends Declaration[T] {
-    val args: Seq[VariableDecl[T]]
-    val retType: Option[T]
-    val body: Seq[Statement[T]]
-    val endsInState: Option[Set[String]]
+sealed abstract class InvokableDeclaration() extends Declaration {
+    val args: Seq[VariableDecl]
+    val retType: Option[ObsidianType]
+    val body: Seq[Statement]
+    val endsInState: Option[Set[Identifier]]
 }
 
 /* Expressions */
-case class Variable[T](name: String) extends Expression[T]
-case class NumLiteral[T](value: Int) extends Expression[T]
-case class StringLiteral[T](value: String) extends Expression[T]
-case class TrueLiteral[T]() extends Expression[T]
-case class FalseLiteral[T]() extends Expression[T]
-case class This[T]() extends Expression[T]
-case class Parent[T]() extends Expression[T]
-case class Conjunction[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class Disjunction[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class LogicalNegation[T](e: Expression[T]) extends Expression[T]
-case class Add[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class Subtract[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class Divide[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class Multiply[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class Equals[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class GreaterThan[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class GreaterThanOrEquals[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class LessThan[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class LessThanOrEquals[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class NotEquals[T](e1: Expression[T], e2: Expression[T]) extends Expression[T]
-case class Dereference[T](e: Expression[T], f: String) extends Expression[T]
-case class LocalInvocation[T](name: String, args: Seq[Expression[T]]) extends Expression[T]
-case class Invocation[T](recipient: Expression[T], name: String, args: Seq[Expression[T]]) extends Expression[T]
-case class Construction[T](name: String, args: Seq[Expression[T]]) extends Expression[T]
+case class Variable(name: String) extends Expression
+case class NumLiteral(value: Int) extends Expression
+case class StringLiteral(value: String) extends Expression
+case class TrueLiteral() extends Expression
+case class FalseLiteral() extends Expression
+case class This() extends Expression
+case class Parent() extends Expression
+case class Conjunction(e1: Expression, e2: Expression) extends Expression
+case class Disjunction(e1: Expression, e2: Expression) extends Expression
+case class LogicalNegation(e: Expression) extends Expression
+case class Add(e1: Expression, e2: Expression) extends Expression
+case class Subtract(e1: Expression, e2: Expression) extends Expression
+case class Divide(e1: Expression, e2: Expression) extends Expression
+case class Multiply(e1: Expression, e2: Expression) extends Expression
+case class Equals(e1: Expression, e2: Expression) extends Expression
+case class GreaterThan(e1: Expression, e2: Expression) extends Expression
+case class GreaterThanOrEquals(e1: Expression, e2: Expression) extends Expression
+case class LessThan(e1: Expression, e2: Expression) extends Expression
+case class LessThanOrEquals(e1: Expression, e2: Expression) extends Expression
+case class NotEquals(e1: Expression, e2: Expression) extends Expression
+case class Dereference(e: Expression, f: String) extends Expression
+case class LocalInvocation(name: String, args: Seq[Expression]) extends Expression
+case class Invocation(recipient: Expression, name: String, args: Seq[Expression]) extends Expression
+case class Construction(name: String, args: Seq[Expression]) extends Expression
 
 /* statements and control flow constructs */
-case class VariableDecl[T](typ: T, varName: String) extends Statement[T]
-case class VariableDeclWithInit[T](typ: T, varName: String, e: Expression[T]) extends Statement[T]
-case class Return[T]() extends Statement[T]
-case class ReturnExpr[T](e: Expression[T]) extends Statement[T]
-case class Transition[T](newStateName: String, updates: Seq[(Variable[T], Expression[T])]) extends Statement[T]
-case class Assignment[T](assignTo: Expression[T], e: Expression[T]) extends Statement[T]
-case class Throw[T]() extends Statement[T]
-case class If[T](eCond: Expression[T], s: Seq[Statement[T]]) extends Statement[T]
-case class IfThenElse[T](eCond: Expression[T], s1: Seq[Statement[T]], s2: Seq[Statement[T]]) extends Statement[T]
-case class TryCatch[T](s1: Seq[Statement[T]], s2: Seq[Statement[T]]) extends Statement[T]
-case class Switch[T](e: Expression[T], cases: Seq[SwitchCase[T]]) extends Statement[T]
-case class SwitchCase[T](stateName: String, body: Seq[Statement[T]]) extends AST[T]
+case class VariableDecl(typ: ObsidianType, varName: String) extends Statement
+case class VariableDeclWithInit(typ: ObsidianType, varName: String, e: Expression) extends Statement
+case class Return() extends Statement
+case class ReturnExpr(e: Expression) extends Statement
+case class Transition(newStateName: String, updates: Seq[(Variable, Expression)]) extends Statement
+case class Assignment(assignTo: Expression, e: Expression) extends Statement
+case class Throw() extends Statement
+case class If(eCond: Expression, s: Seq[Statement]) extends Statement
+case class IfThenElse(eCond: Expression, s1: Seq[Statement], s2: Seq[Statement]) extends Statement
+case class TryCatch(s1: Seq[Statement], s2: Seq[Statement]) extends Statement
+case class Switch(e: Expression, cases: Seq[SwitchCase]) extends Statement
+case class SwitchCase(stateName: String, body: Seq[Statement]) extends AST
 
 /* Declarations */
-case class TypeDecl[T](name: String, typ: T) extends Declaration[T] {
+case class TypeDecl(name: String, typ: ObsidianType) extends Declaration {
     val tag: DeclarationTag = TypeDeclTag
 }
 
-case class Field[T](isConst: Boolean, typ: T, name: String) extends Declaration[T] {
+case class Field(isConst: Boolean, typ: ObsidianType, name: String) extends Declaration {
     val tag: DeclarationTag = FieldDeclTag
 }
 
-case class Constructor[T](name: String,
-                       args: Seq[VariableDecl[T]],
-                          endsInState: Option[Set[String]],
-                       body: Seq[Statement[T]]) extends InvokableDeclaration[T] {
-    val retType: Option[T] = None
+case class Constructor(name: String,
+                       args: Seq[VariableDecl],
+                          endsInState: Option[Set[Identifier]],
+                       body: Seq[Statement]) extends InvokableDeclaration {
+    val retType: Option[ObsidianType] = None
     val tag: DeclarationTag = ConstructorDeclTag
 }
-case class Func[T](name: String,
-                args: Seq[VariableDecl[T]],
-                retType: Option[T],
-                body: Seq[Statement[T]]) extends InvokableDeclaration[T] {
-    val endsInState: Option[Set[String]] = None
+case class Func(name: String,
+                args: Seq[VariableDecl],
+                retType: Option[ObsidianType],
+                body: Seq[Statement]) extends InvokableDeclaration {
+    val endsInState: Option[Set[Identifier]] = None
     val tag: DeclarationTag = FuncDeclTag
 }
-case class Transaction[T](name: String,
-                       args: Seq[VariableDecl[T]],
-                       retType: Option[T],
-                       availableIn: Seq[Identifier],
-                       ensures: Seq[Ensures[T]],
-                          endsInState: Option[Set[String]],
-                       body: Seq[Statement[T]]) extends InvokableDeclaration[T] {
+case class Transaction(name: String,
+                       args: Seq[VariableDecl],
+                       retType: Option[ObsidianType],
+                       availableIn: Option[Set[Identifier]],
+                       ensures: Seq[Ensures],
+                          endsInState: Option[Set[Identifier]],
+                       body: Seq[Statement]) extends InvokableDeclaration {
     val tag: DeclarationTag = TransactionDeclTag
 }
-case class State[T](name: String, declarations: Seq[Declaration[T]]) extends Declaration[T] {
+case class State(name: String, declarations: Seq[Declaration]) extends Declaration {
     val tag: DeclarationTag = StateDeclTag
 }
 
-case class Ensures[T](expr: Expression[T]) extends AST[T]
+case class Ensures(expr: Expression) extends AST
 
 sealed abstract trait ContractModifier extends HasLocation
-case class IsOwned() extends ContractModifier
+case class IsResource() extends ContractModifier
 case class IsShared() extends ContractModifier
 case class IsMain() extends ContractModifier
 
-case class Import[T](name: String) extends AST[T]
+case class Import(name: String) extends AST
 
-case class Contract[T](mod: Option[ContractModifier],
+case class Contract(mod: Option[ContractModifier],
                     name: String,
-                    declarations: Seq[Declaration[T]]) extends Declaration[T] {
+                    declarations: Seq[Declaration]) extends Declaration {
     val tag: DeclarationTag = ContractDeclTag
 }
 
 /* Program */
-case class Program[T](imports: Seq[Import[T]], contracts: Seq[Contract[T]]) extends AST[T]
+case class Program(imports: Seq[Import], contracts: Seq[Contract]) extends AST
