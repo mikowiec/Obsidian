@@ -94,7 +94,7 @@ case class Field(isConst: Boolean, typ: ObsidianType, name: String) extends Decl
 
 case class Constructor(name: String,
                        args: Seq[VariableDecl],
-                          endsInState: Option[Set[Identifier]],
+                       endsInState: Option[Set[Identifier]],
                        body: Seq[Statement]) extends InvokableDeclaration {
     val retType: Option[ObsidianType] = None
     val tag: DeclarationTag = ConstructorDeclTag

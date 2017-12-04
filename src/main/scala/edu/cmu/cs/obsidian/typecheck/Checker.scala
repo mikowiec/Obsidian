@@ -16,7 +16,6 @@ import scala.util.parsing.input.Position
  * path/contract/state names is required */
 
 
-
 /* We define a custom type to store a special flag for if a context in after a "throw".
  * In the formalism, we allow throw to result in any type: in the implementation, we don't know
  * immediately which type this needs to be in order for type checking to work */
