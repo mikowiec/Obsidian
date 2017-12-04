@@ -46,9 +46,9 @@ object Parser extends Parsers {
         linearP | remoteP
     }
 
-    private def parseType = {
-        val parsePathNode = (parseId | ThisT() | ParentT()) ~ DotT() ^^ {
-            case name ~ DotT() =>
+    private def parseType: Parser[ObsidianType] = {
+        val parsePathComponent = (parseId | ThisT() | ParentT()) ^^ {
+            case name =>
                 name match {
                     case _: ThisT => "this"
                     case _: ParentT => "parent"
@@ -56,15 +56,24 @@ object Parser extends Parsers {
                 }
         }
 
-        val nonPrim = rep(parseTypeModifier) ~ rep(parsePathNode) ^^ {
-            case mods ~ identifiers => UnresolvedNonprimitiveType(identifiers, mods.toSet)
+        val parsePath: Parser[Seq[String]] = rep1sep(parsePathComponent, DotT())
+        val parseNonPrimitiveNotInPath: Parser[Seq[String]] = parseId ^^ {
+            case ident => List(ident._1)
         }
+
+        val parseNonPrimitive: Parser[UnresolvedNonprimitiveType] =
+            rep(parseTypeModifier) ~ (parseNonPrimitiveNotInPath | parsePath) ^^ {
+                case mods ~ idOrPath => {
+                    UnresolvedNonprimitiveType(idOrPath, mods.toSet)
+                }
+        }
+
 
         val intPrim = IntT() ^^ { t => IntType() }
         val boolPrim = BoolT() ^^ { t => BoolType() }
         val stringPrim = StringT() ^^ { t => StringType() }
 
-        nonPrim | intPrim | boolPrim | stringPrim
+        parseNonPrimitive | intPrim | boolPrim | stringPrim
     }
 
     private def parseArgList: Parser[Seq[Expression]] = repsep(parseExpr, CommaT())
@@ -237,8 +246,8 @@ object Parser extends Parsers {
         rep(parseOne) ^^ (lst => (e: Expression) => foldDotExpr(e, lst))
     }
 
-    private val parseStringLiteral: Parser[Expression] = {
-        val partialFunction: PartialFunction[Token, Expression] = {
+    private val parseStringLiteral: Parser[StringLiteral] = {
+        val partialFunction: PartialFunction[Token, StringLiteral] = {
             case t@StringLiteralT(s) => StringLiteral(s).setLoc(t)
         }
 
