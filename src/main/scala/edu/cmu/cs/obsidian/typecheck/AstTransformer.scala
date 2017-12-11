@@ -1,6 +1,7 @@
 package edu.cmu.cs.obsidian.typecheck
 
 import edu.cmu.cs.obsidian.parser._
+import scala.util.parsing.input.Position
 
 import scala.collection.immutable.{HashSet, TreeMap, TreeSet}
 
@@ -18,40 +19,51 @@ object AstTransformer {
     type Context = Map[String, ObsidianType]
     val emptyContext = new TreeMap[String, ObsidianType]()
 
-    def transformProgram(table: SymbolTable): SymbolTable = {
-        for (c <- table.astRaw.contracts.map(_.name)) {
-            transformContract(table, table.contract(c).get)
+    def transformProgram(table: SymbolTable): (SymbolTable, Seq[ErrorRecord]) = {
+        var errorRecords = List.empty[ErrorRecord]
+        for (c <- table.ast.contracts.map(_.name)) {
+            errorRecords = errorRecords ++ transformContract(table, table.contract(c).get)
         }
-        val newImports = table.astRaw.imports.map(_.copy())
+        val newImports = table.ast.imports.map(_.copy())
 
-        val newContracts = table.astRaw.contracts.map(c => table.contract(c.name).get.ast)
-        val newProgram = table.astRaw.copy(imports = newImports, contracts = newContracts)
+        val newContracts = table.ast.contracts.map(c => table.contract(c.name).get.ast)
+        val newProgram = table.ast.copy(imports = newImports, contracts = newContracts)
 
         /* to make this faster, we could just mutate the AST nodes instead of
          * making the symbol table again entirely */
-        new SymbolTable(newProgram)
+        (new SymbolTable(newProgram), errorRecords)
         //table.updateAstNode(newProgram)
     }
 
-    def transformContract(table: SymbolTable, cTable: ContractTable): Unit = {
+    def transformContract(table: SymbolTable, cTable: ContractTable): Seq[ErrorRecord] = {
         var newDecls: Seq[Declaration] = Nil
+        var errors = List.empty[ErrorRecord]
         for (d <- cTable.astRaw.declarations) {
             val newDecl: Declaration = d.tag match {
                 case TransactionDeclTag =>
-                    transformTransaction(table, cTable, d.asInstanceOf[Transaction])
+                    val (newTransaction, newErrors) = transformTransaction(table, cTable, d.asInstanceOf[Transaction])
+                    errors = errors ++ newErrors
+                    newTransaction
                 case FuncDeclTag =>
-                    transformFunc(table, cTable, d.asInstanceOf[Func])
+                    val (newFunction, newErrors) = transformFunc(table, cTable, d.asInstanceOf[Func])
+                    errors = errors ++ newErrors
+                    newFunction
                 case ConstructorDeclTag =>
-                    transformConstructor(table, cTable, d.asInstanceOf[Constructor])
+                    val (newConstructor, newErrors) = transformConstructor(table, cTable, d.asInstanceOf[Constructor])
+                    errors = errors ++ newErrors
+                    newConstructor
                 case FieldDeclTag =>
-                    transformField(table, cTable, d.asInstanceOf[Field])
+                    val (newField, newErrors) = transformField(table, cTable, d.asInstanceOf[Field])
+                    errors = errors ++ newErrors
+                    newField
                 case StateDeclTag =>
                     val stateTable = cTable.state(d.asInstanceOf[State].name).get
-                    transformState(table, stateTable)
+                    val newErrors = transformState(table, stateTable)
+                    errors = errors ++ newErrors
                     stateTable.ast
                 case ContractDeclTag =>
                     val contractTable = cTable.childContract(d.asInstanceOf[Contract].name).get
-                    transformContract(table, contractTable)
+                    errors = errors ++ transformContract(table, contractTable)
                     contractTable.ast
                 case TypeDeclTag => null
             }
@@ -61,13 +73,16 @@ object AstTransformer {
         newDecls = newDecls.reverse
 
         val newContract = cTable.astRaw.copy(declarations = newDecls)
-        cTable.updateAstNode(newContract)
+        cTable.recordResolvedAST(newContract)
+        errors.reverse
     }
 
-    def transformState(table: SymbolTable, sTable: StateTable): Unit = {
+    def transformState(table: SymbolTable, sTable: StateTable): Seq[ErrorRecord] = {
         var newDecls: Seq[Declaration] = Nil
+        var errors = List.empty[ErrorRecord]
+
         for (d <- sTable.astRaw.declarations) {
-            val newDecl: Declaration = d.tag match {
+            val (newDecl, newErrors) = d.tag match {
                 case TransactionDeclTag =>
                     transformTransaction(table, sTable, d.asInstanceOf[Transaction])
                 case FuncDeclTag =>
@@ -81,19 +96,23 @@ object AstTransformer {
                 case TypeDeclTag => null
             }
             newDecls = newDecl +: newDecls
+            errors = errors ++ newErrors
         }
 
         newDecls = newDecls.reverse
 
         val newContract = sTable.astRaw.copy(declarations = newDecls)
         sTable.updateAstNode(newContract)
+        errors.reverse
     }
 
     def transformField(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            f: Field): Field = {
-        f.copy(typ = transformType(table, lexicallyInsideOf, emptyContext, f.typ))
+            f: Field): (Field, Seq[ErrorRecord]) = {
+        val context = startContext(lexicallyInsideOf, List.empty)
+        val (newType, errors) = transformType(table, lexicallyInsideOf, context, f.typ, f.loc)
+        (f.copy(typ = newType), errors)
     }
 
     def transformExpression(e: Expression): Expression = {
@@ -141,8 +160,13 @@ object AstTransformer {
         }
     }
 
-    def startContext(args: Seq[VariableDecl]): Context = {
+    def startContext(lexicallyInsideOf: DeclarationTable, args: Seq[VariableDecl]): Context = {
         var startContext = emptyContext
+
+        val simpleType =  NoPathType(JustContractType(lexicallyInsideOf.name))
+        val contractType = UnresolvedNonprimitiveType(List("this"), Set())
+        startContext = startContext.updated("this", contractType)
+
         for (a <- args) {
             startContext = startContext.updated(a.varName, a.typ)
         }
@@ -152,52 +176,77 @@ object AstTransformer {
     def transformArgs(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            args: Seq[VariableDecl]): Seq[VariableDecl] = {
+            args: Seq[VariableDecl]): (Seq[VariableDecl], Seq[ErrorRecord]) = {
+        var errors = List.empty[ErrorRecord]
         var newArgs: Seq[VariableDecl] = Nil
-        val context = startContext(args)
+        val context = startContext(lexicallyInsideOf, args)
         for (a <- args) {
-            val aNew = a.copy(typ = transformType(table, lexicallyInsideOf, context - a.varName, a.typ))
+            val (transformedType, newErrors) = transformType(table, lexicallyInsideOf, context - a.varName, a.typ, a.loc)
+            errors = errors ++ newErrors
+
+            val aNew = a.copy(typ = transformedType)
             newArgs = aNew +: newArgs
         }
-        newArgs.reverse
+        (newArgs.reverse, errors)
     }
 
     def transformTransaction(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            t: Transaction): Transaction = {
-        val context = startContext(t.args)
+            t: Transaction): (Transaction, Seq[ErrorRecord]) = {
+        val context = startContext(lexicallyInsideOf, t.args)
 
-        val newRetType = t.retType.map(transformType(table, lexicallyInsideOf, context, _))
-        val newArgs = transformArgs(table, lexicallyInsideOf, t.args)
+
+        var (newArgs, argErrors) = transformArgs(table, lexicallyInsideOf, t.args)
 
         val newEnsures = t.ensures.map(en => en.copy(expr = transformExpression(en.expr)))
-        t.copy(retType = newRetType, args = newArgs, ensures = newEnsures,
-                             body = transformBody(table, lexicallyInsideOf, context, t.body))
+
+        val (newRetType, retTypeErrors) = t.retType match {
+            case None => (None, List.empty)
+            case Some(retType) =>
+                val (transformedType, errs) = transformType(table, lexicallyInsideOf, context, retType, t.loc)
+                (Some(transformedType), errs)
+        }
+        val (newTransactionBody, _, bodyErrors) =  transformBody(table, lexicallyInsideOf, context, t.body)
+        val newTransaction = t.copy(retType = newRetType, args = newArgs, ensures = newEnsures,
+            body = newTransactionBody)
+        (newTransaction, retTypeErrors ++ argErrors ++ bodyErrors)
     }
 
     def transformConstructor(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            c: Constructor): Constructor = {
+            c: Constructor): (Constructor, Seq[ErrorRecord]) = {
 
-        val newArgs = transformArgs(table, lexicallyInsideOf, c.args)
-        val context = startContext(c.args)
+        val (newArgs, argsTransformErrors) = transformArgs(table, lexicallyInsideOf, c.args)
+        val context = startContext(lexicallyInsideOf, c.args)
+        var (newBody, _, bodyTransformErrors) = transformBody(table, lexicallyInsideOf, context, c.body)
+        val errors = argsTransformErrors ++ bodyTransformErrors
 
-        c.copy(args = newArgs, body = transformBody(table, lexicallyInsideOf, context, c.body))
+        (c.copy(args = newArgs, body = newBody), errors)
     }
 
     def transformFunc(
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
-            f: Func): Func = {
+            f: Func): (Func, Seq[ErrorRecord]) = {
 
-        val newArgs = transformArgs(table, lexicallyInsideOf, f.args)
-        val context = startContext(f.args)
-        val newRetType = f.retType.map(transformType(table, lexicallyInsideOf, context, _))
+        val (newArgs, argTransformErrors) = transformArgs(table, lexicallyInsideOf, f.args)
+        val context = startContext(lexicallyInsideOf, f.args)
+        val newRetType = f.retType.map(transformType(table, lexicallyInsideOf, context, _, f.loc))
+        var errors = List.empty[ErrorRecord]
+        val (transformedRetType, retTypeErrors) = newRetType match {
+            case None => (None, List.empty)
+            case Some(p) => (Some(p._1), p._2)
+        }
 
-        f.copy(retType = newRetType, args = newArgs,
-               body = transformBody(table, lexicallyInsideOf, context, f.body))
+        val (transformedBody, _, bodyTransformErrors) = transformBody(table, lexicallyInsideOf, context, f.body)
+        val transformedF = f.copy(retType = transformedRetType, args = newArgs,
+               body = transformedBody)
+
+        errors = retTypeErrors ++ argTransformErrors ++ bodyTransformErrors
+
+        (transformedF, errors)
 
     }
 
@@ -205,12 +254,13 @@ object AstTransformer {
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
             inScope: Context,
-            b: Seq[Statement]): Seq[Statement] = {
+            b: Seq[Statement]): (Seq[Statement], Context, Seq[ErrorRecord]) = {
         b match {
-            case Seq() => Seq()
+            case Seq() => (Seq(), inScope, Seq())
             case s +: rest =>
-                val (sNew, inScopeNew) = transformStatement(table, lexicallyInsideOf, inScope, s)
-                sNew +: transformBody(table, lexicallyInsideOf, inScopeNew, rest)
+                val (sNew, inScopeNew, errors) = transformStatement(table, lexicallyInsideOf, inScope, s)
+                val (restStatements, finalContext, restErrors) = transformBody(table, lexicallyInsideOf, inScopeNew, rest)
+                (sNew +: restStatements, finalContext, errors ++ restErrors)
         }
     }
 
@@ -218,42 +268,56 @@ object AstTransformer {
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
             context: Context,
-            s: Statement): (Statement, Context) = {
+            s: Statement): (Statement, Context, Seq[ErrorRecord]) = {
         s match {
             case oldDecl@VariableDecl(typ, varName) =>
-                val newTyp = transformType(table, lexicallyInsideOf, context, typ)
-                (oldDecl.copy(typ = newTyp).setLoc(oldDecl), context.updated(varName, typ))
+                val newTypChoice = transformType(table, lexicallyInsideOf, context, typ, s.loc)
+                val (newTyp, errors) = transformType(table, lexicallyInsideOf, context, typ, s.loc)
+                (oldDecl.copy(typ = newTyp).setLoc(oldDecl), context.updated(varName, typ), errors)
             case oldDecl@VariableDeclWithInit(typ, varName, e) =>
-                val newTyp = transformType(table, lexicallyInsideOf, context, typ)
+                val (newTyp, errors) = transformType(table, lexicallyInsideOf, context, typ, s.loc)
                 val newDecl = oldDecl.copy(typ = newTyp, e = transformExpression(e)).setLoc(oldDecl)
-                (newDecl, context.updated(varName, typ))
+                (newDecl, context.updated(varName, typ), errors)
+            case Return() => (Return(), context, Seq())
+            case ReturnExpr(e) => (transformExpression(e), context, Seq())
+            case Transition(newStateName, updates) =>
+                var transformedUpdates = List.empty[(Variable, Expression)]
+                for ((v, e) <- updates) {
+                    transformedUpdates = List((v, transformExpression(e))) ++ transformedUpdates
+                }
+                (Transition(newStateName, transformedUpdates), context, Seq())
+            case Assignment(assignTo, e) => (Assignment(transformExpression(assignTo), transformExpression(e)), context, Seq())
+            case Throw() => (Throw(), context, Seq())
             case oldIf@If(eCond, sIf) =>
-                val sIfNew = transformBody(table, lexicallyInsideOf, context, sIf)
+                val (sIfNew, newContext, errors) = transformBody(table, lexicallyInsideOf, context, sIf)
                 val newIf = oldIf.copy(s = sIfNew, eCond = transformExpression(eCond)).setLoc(oldIf)
-                (newIf, context)
+                (newIf, newContext, errors)
             case oldIf@IfThenElse(eCond, s1, s2) =>
-                val s1New = transformBody(table, lexicallyInsideOf, context, s1)
-                val s2New = transformBody(table, lexicallyInsideOf, context, s2)
+                val (s1New, newContext1, errors1) = transformBody(table, lexicallyInsideOf, context, s1)
+                val (s2New, newContext2, errors2) = transformBody(table, lexicallyInsideOf, context, s2)
                 val newIf = oldIf.copy(
                     s1 = s1New,
                     s2 = s2New,
                     eCond = transformExpression(eCond)
                 ).setLoc(oldIf)
-                (newIf, context)
+                (newIf, context, errors1 ++ errors2)
             case oldTry@TryCatch(s1, s2) =>
-                val s1New = transformBody(table, lexicallyInsideOf, context, s1)
-                val s2New = transformBody(table, lexicallyInsideOf, context, s2)
+                val (s1New, newContext1, errors1) = transformBody(table, lexicallyInsideOf, context, s1)
+                val (s2New, newContext2, errors2) = transformBody(table, lexicallyInsideOf, context, s2)
                 val newIf = oldTry.copy(s1 = s1New, s2 = s2New).setLoc(oldTry)
-                (newIf, context)
+                (newIf, context, errors1 ++ errors2)
             case oldSwitch@Switch(e, cases) =>
+                var errors = List.empty[ErrorRecord]
                 val newCases = cases.map(_case => {
-                    val newBody = transformBody(table, lexicallyInsideOf, context, _case.body)
+                    val (newBody, newContext, newErrors) = transformBody(table, lexicallyInsideOf, context, _case.body)
+                    errors = errors ++ newErrors;
                     _case.copy(body = newBody).setLoc(oldSwitch)
                 })
                 val newSwitch = oldSwitch.copy(e = transformExpression(e),
                                                cases = newCases).setLoc(oldSwitch)
-                (newSwitch, context)
-            case e: Expression => (transformExpression(e), context)
+                (newSwitch, context, errors)
+            case e: Expression => (transformExpression(e), context, Seq())
+
         }
     }
 
@@ -261,23 +325,34 @@ object AstTransformer {
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
             context: Context,
-            t: ObsidianType): ObsidianType = {
+            t: ObsidianType,
+            pos: Position): (ObsidianType, List[ErrorRecord]) = {
 
         // We should only be transforming potentially-unresolved types, but we can't specify that statically because ASTs are used for resolved types too.
         assert(t.isInstanceOf[PotentiallyUnresolvedType]);
         t match {
-            case BoolType() => BoolType()
-            case IntType() => IntType()
-            case StringType() => StringType()
+            case BoolType() => (BoolType(), List.empty[ErrorRecord])
+            case IntType() => (IntType(), List.empty[ErrorRecord])
+            case StringType() => (StringType(), List.empty[ErrorRecord])
             case nonPrim@UnresolvedNonprimitiveType(mods, ids) =>
                 val tCanonified: UnresolvedNonprimitiveType = canonifyParsableType(table, context, nonPrim)
                 val result: TraverseResult = resolveNonPrimitiveTypeContext(table, lexicallyInsideOf, tCanonified,
-                                                            new TreeSet(), context)
+                                                            new TreeSet(), context, pos)
                 result match {
-                    case Left(_) => BottomType()
+                    case Left(err) => (BottomType(), List(ErrorRecord(err, pos)))
                     case Right((unpermissionedType, declTable)) =>
-                        NonPrimitiveType(declTable, unpermissionedType, nonPrim.mods)
+                        (NonPrimitiveType(declTable, unpermissionedType, nonPrim.mods), List.empty)
                 }
+            case BottomType() => (BottomType(), List.empty)
+            case np: NonPrimitiveType => (np, List.empty)
+        }
+    }
+
+
+    def decomposeTransformResult(result: Either[Error, ObsidianType], pos: Position): (ObsidianType, List[ErrorRecord]) = {
+        result match {
+            case Left(err) => (BottomType(), List(ErrorRecord(err, pos)))
+            case Right(typ) => (typ, List.empty[ErrorRecord])
         }
     }
 
@@ -340,7 +415,8 @@ object AstTransformer {
             lexicallyInsideOf: DeclarationTable,
             t: UnresolvedNonprimitiveType,
             visitedLocalVars: Set[String],
-            context: Context): TraverseResult = {
+            context: Context,
+            pos: Position): TraverseResult = {
 
         if (t.identifiers.length == 1) {
             val cName = t.identifiers.head
@@ -359,8 +435,9 @@ object AstTransformer {
                 val tNew = UnresolvedNonprimitiveType(pathRest, t.mods)
                 val emptySet = new HashSet[(DeclarationTable, String)]()
                 val result =
-                    resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, tNew, emptySet)
+                    resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, tNew, emptySet, pos)
                 appendToPath("this", result)
+                return result
             }
 
             if (t.identifiers.length == 2) {
@@ -387,16 +464,16 @@ object AstTransformer {
             }
             val newVisited = visitedLocalVars + pathHead
 
-            val pathHeadType = context(pathHead) match {
+            val pathHeadType: UnresolvedNonprimitiveType = context(pathHead) match {
                 case trNext: UnresolvedNonprimitiveType => trNext
                 case prim =>
-                    val primType = transformType(table, lexicallyInsideOf, context, prim)
-                    return Left(DereferenceError(primType))
+                    val (primType, errors) = transformType(table, lexicallyInsideOf, context, prim, pos)
+                     return Left(DereferenceError(t))
             }
 
             val newInsideOf =
                 resolveNonPrimitiveTypeContext(table, lexicallyInsideOf, pathHeadType,
-                                               newVisited, context) match {
+                                               newVisited, context, pos) match {
                     case l@Left(_) => return l
                     case Right(travData) => travData._2
                 }
@@ -404,7 +481,7 @@ object AstTransformer {
             val tNew = UnresolvedNonprimitiveType(pathRest, t.mods)
 
             val emptySet = new HashSet[(DeclarationTable, String)]()
-            val result = resolveNonPrimitiveTypeNoContext(table, newInsideOf, tNew, emptySet)
+            val result = resolveNonPrimitiveTypeNoContext(table, newInsideOf, tNew, emptySet, pos)
 
             appendToPath(pathHead, result)
         }
@@ -414,7 +491,8 @@ object AstTransformer {
             table: SymbolTable,
             lexicallyInsideOf: DeclarationTable,
             t: UnresolvedNonprimitiveType,
-            visitedFields: Set[(DeclarationTable, String)]): TraverseResult = {
+            visitedFields: Set[(DeclarationTable, String)],
+            pos: Position): TraverseResult = {
 
         if (t.identifiers.length == 1) {
             val cName = t.identifiers.head
@@ -432,7 +510,7 @@ object AstTransformer {
                 if (lexicallyInsideOf.contract.hasParent) {
                     val tNew = t.copy(identifiers = pathRest)
                     val newInsideOf = lexicallyInsideOf.contract.parent.get
-                    val result = resolveNonPrimitiveTypeNoContext(table, newInsideOf, tNew, visitedFields)
+                    val result = resolveNonPrimitiveTypeNoContext(table, newInsideOf, tNew, visitedFields, pos)
                     appendToPath("parent", result)
                 } else {
                     Left(NoParentError(lexicallyInsideOf.contract.name))
@@ -477,14 +555,14 @@ object AstTransformer {
             val nonPrim = field.typ match {
                 case tNonPrim: UnresolvedNonprimitiveType => tNonPrim
                 case prim =>
-                    val tRes = transformType(table, lexicallyInsideOf, new TreeMap(), prim)
-                    return Left(DereferenceError(tRes))
+                    val (tRes, errors) = transformType(table, lexicallyInsideOf, new TreeMap(), prim, pos)
+                    return Left(DereferenceError(t))
             }
 
             val newVisited = visitedFields.+((lexicallyInsideOf, pathHead))
 
             val traverseField =
-                resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, nonPrim, newVisited)
+                resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, nonPrim, newVisited, pos)
 
             val newInsideOf = traverseField match {
                 case Left(err) => return Left(err)
@@ -493,7 +571,7 @@ object AstTransformer {
 
             val tNew = t.copy(identifiers = pathRest)
 
-            val result = resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, tNew, newVisited)
+            val result = resolveNonPrimitiveTypeNoContext(table, lexicallyInsideOf, tNew, newVisited, pos)
             appendToPath(pathHead, result)
         }
     }

@@ -9,6 +9,12 @@ abstract class Error {
     val msg: String
 }
 
+case class ErrorRecord (error: Error, pos: scala.util.parsing.input.Position) {
+    def printMessage(): Unit = {
+        println(s"At $pos: ${error.msg}")
+    }
+}
+
 case class SubTypingError(t1: ObsidianType, t2: ObsidianType) extends Error {
     val msg: String = s"Found type '$t1', but expected something of type '$t2'"
 }

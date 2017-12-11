@@ -10,7 +10,7 @@ import edu.cmu.cs.obsidian.codegen._
 import edu.cmu.cs.obsidian.protobuf._
 import edu.cmu.cs.obsidian.util._
 import com.helger.jcodemodel.JCodeModel
-import edu.cmu.cs.obsidian.typecheck.{Checker, VariableUndefinedError}
+import edu.cmu.cs.obsidian.typecheck.{AstTransformer, Checker, ErrorRecord, VariableUndefinedError}
 
 import scala.sys.process._
 import scala.util.parsing.input.NoPosition
@@ -263,11 +263,19 @@ object Main {
             }
 
             val table = new SymbolTable(ast)
-            val checker = new Checker(table, options.typeCheckerDebug)
-            if (!checker.checkProgramAndPrintErrors()) {
+            val (globalTable: SymbolTable, transformErrors) = AstTransformer.transformProgram(table)
+
+            for (error <- transformErrors) {
+                error.printMessage()
+            }
+
+            val checker = new Checker(globalTable, options.typeCheckerDebug)
+            if (!checker.checkProgramAndPrintErrors() || !transformErrors.isEmpty) {
                 println("Typechecking failed.\n")
                 return
             }
+
+
 
             val lastSlash = filename.lastIndexOf("/")
             val sourceFilename = if (lastSlash < 0) filename else filename.substring(lastSlash + 1)

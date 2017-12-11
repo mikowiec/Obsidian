@@ -41,13 +41,18 @@ class StateTable(
         astNodeRaw: State,
         lexicallyInsideOf: ContractTable) extends DeclarationTable {
 
+    assert(astNodeRaw != null)
+
     private var astNode: State = _
     private var fieldLookup: Map[String, Field] = _
     private var txLookup: Map[String, Transaction] = _
     private var funLookup: Map[String, Func] = _
 
+
+
     def updateAstNode(ast: State): Unit = {
         astNode = ast
+        assert(astNode != null)
         fieldLookup = indexDecl[ObsidianType, Field](ast.declarations, FieldDeclTag)
         txLookup = indexDecl[ObsidianType, Transaction](ast.declarations, TransactionDeclTag)
         funLookup = indexDecl[ObsidianType, Func](ast.declarations, FuncDeclTag)
@@ -119,6 +124,7 @@ class ContractTable(
         astNodeRaw: Contract,
         symbolTable: SymbolTable,
         parentContract: Option[ContractTable]) extends DeclarationTable {
+    assert (astNodeRaw != null)
 
     def this(astNodeRaw: Contract, symbolTable: SymbolTable) =
         this(astNodeRaw, symbolTable, None)
@@ -126,15 +132,16 @@ class ContractTable(
     def this(astNodeRaw: Contract, symbolTable: SymbolTable, parentContract: ContractTable) =
         this(astNodeRaw, symbolTable, Some(parentContract))
 
-    private var astNode: Contract = _
+    private var resolvedASTNode: Contract = _
     private var fieldLookup: Map[String, Field] = _
     private var txLookup: Map[String, Transaction] = _
     private var funLookup: Map[String, Func] = _
 
     def simpleType = JustContractType(name)
 
-    def updateAstNode(ast: Contract): Unit = {
-        astNode = ast
+    def recordResolvedAST(ast: Contract): Unit = {
+        resolvedASTNode = ast
+        assert(ast != null)
         fieldLookup = indexDecl[ObsidianType, Field](ast.declarations, FieldDeclTag)
         txLookup = indexDecl[ObsidianType, Transaction](ast.declarations, TransactionDeclTag)
         funLookup = indexDecl[ObsidianType, Func](ast.declarations, FuncDeclTag)
@@ -164,7 +171,7 @@ class ContractTable(
         )
     }
 
-    def name: String = astNode.name
+    def name: String = this.ast.name
 
     def contract: ContractTable = this
 
@@ -181,7 +188,7 @@ class ContractTable(
         }
     }
 
-    def ast: Contract = astNode
+    def ast: Contract = if (resolvedASTNode != null) resolvedASTNode else astNodeRaw
     def astRaw: Contract = astNodeRaw
     def lookupField(name: String): Option[Field] = fieldLookup.get(name)
     def lookupTransaction(name: String): Option[Transaction] = txLookup.get(name)
@@ -214,14 +221,14 @@ class SymbolTable(astNodeRaw: Program) {
         table
     }
 
-    def updateAstNode(ast: Program): Unit = {
-        astNode = ast
+    def recordResolvedAST(ast: Program): Unit = {
+        resolvedASTNode = ast
     }
 
-    private var astNode: Program = _
+    private var resolvedASTNode: Program = _
 
-    def ast: Program = astNode
-    def astRaw: Program = astNodeRaw
+    def resolvedAST: Program = resolvedASTNode
+    def ast: Program = if (resolvedASTNode != null) resolvedASTNode else astNodeRaw
 
     /* only retrieves top level contracts (i.e. not nested) */
     def contract: Function[String, Option[ContractTable]] = contractLookup.get

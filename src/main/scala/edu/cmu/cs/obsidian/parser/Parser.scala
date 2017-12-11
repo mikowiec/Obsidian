@@ -47,24 +47,30 @@ object Parser extends Parsers {
     }
 
     private def parseType: Parser[ObsidianType] = {
-        val parsePathComponent = (parseId | ThisT() | ParentT()) ^^ {
-            case name =>
-                name match {
-                    case _: ThisT => "this"
-                    case _: ParentT => "parent"
-                    case id => id.asInstanceOf[Identifier]._1
+        def parseDotPath: Parser[Seq[Identifier]] = DotT() ~ parseId ~ opt(parseDotPath) ^^ {
+            case _ ~ ident ~ rest => {
+                rest match {
+                    case Some(path) => List(ident) ++ path
+                    case None => List(ident)
                 }
-        }
-
-        val parsePath: Parser[Seq[String]] = rep1sep(parsePathComponent, DotT())
-        val parseNonPrimitiveNotInPath: Parser[Seq[String]] = parseId ^^ {
-            case ident => List(ident._1)
+            }
         }
 
         val parseNonPrimitive: Parser[UnresolvedNonprimitiveType] =
-            rep(parseTypeModifier) ~ (parseNonPrimitiveNotInPath | parsePath) ^^ {
-                case mods ~ idOrPath => {
-                    UnresolvedNonprimitiveType(idOrPath, mods.toSet)
+            rep(parseTypeModifier) ~ (parseId | ThisT()) ~ opt(parseDotPath) ^^ {
+                case mods ~ id ~ path => {
+                    val (identString, position: Position) = id match {
+                        case t: Token => (t.toString, t.pos)
+                        // For obscure type erasure reasons, a pattern match on Identifier type doesn't work.
+                        case ident => (ident.asInstanceOf[Identifier]._1, ident.asInstanceOf[Identifier]._2)
+                    }
+                    path match {
+                        case Some(idents) =>
+                            val pathStrings = List(identString) ++ idents.map(ident => ident._1)
+                            UnresolvedNonprimitiveType(pathStrings, mods.toSet).setLoc(position)
+                        case None => UnresolvedNonprimitiveType(List(identString), mods.toSet).setLoc(position)
+                    }
+
                 }
         }
 
@@ -238,12 +244,12 @@ object Parser extends Parsers {
     }
 
     private def parseDots: Parser[Expression => Expression] = {
-        val parseOne = DotT() ~! parseId ~ opt(LParenT() ~ parseArgList ~ RParenT()) ^^ {
+        val parseOne: Parser[DotExpr] = DotT() ~! parseId ~ opt(LParenT() ~ parseArgList ~ RParenT()) ^^ {
             case _ ~ name ~ Some(_ ~ args ~ _) => Right((name, args))
             case _ ~ name ~ None => Left(name)
         }
 
-        rep(parseOne) ^^ (lst => (e: Expression) => foldDotExpr(e, lst))
+        rep(parseOne) ^^ ((lst: Seq[DotExpr]) => (e: Expression) => foldDotExpr(e, lst))
     }
 
     private val parseStringLiteral: Parser[StringLiteral] = {
@@ -426,7 +432,6 @@ object Parser extends Parsers {
 
         if (printTokens) {
             println("Tokens:")
-            println()
             println(tokens)
             println()
         }

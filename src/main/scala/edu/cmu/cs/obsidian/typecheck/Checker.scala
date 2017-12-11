@@ -31,6 +31,7 @@ case class Context(underlyingVariableMap: Map[String, ObsidianType], isThrown: B
             t match {
                 case BottomType() => ()
                 case u@UnresolvedNonprimitiveType(identifiers, mods) => rawContext = rawContext.updated(x, u)
+                case np@NonPrimitiveType(table, typ, mods) => rawContext.updated(x, np)
                 case prim@IntType() => rawContext = rawContext.updated(x, prim)
                 case prim@StringType() => rawContext = rawContext.updated(x, prim)
                 case prim@BoolType() => rawContext = rawContext.updated(x, prim)
@@ -42,19 +43,16 @@ case class Context(underlyingVariableMap: Map[String, ObsidianType], isThrown: B
     def tableOfThis: DeclarationTable = this("this").asInstanceOf[NonPrimitiveType].table
 }
 
-class Checker(unmodifiedTable: SymbolTable, verbose: Boolean = false) {
-
-    val globalTable: SymbolTable = AstTransformer.transformProgram(unmodifiedTable)
-
+class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
     /* only stores [PotentiallyUnresolvedType]s; all types in the context can thus be
      * resolved purely syntactically */
     type UnresolvedContext = Map[String, PotentiallyUnresolvedType]
 
-    val errors = new collection.mutable.ArrayStack[(Error, Position)]()
+    val errors = new collection.mutable.ArrayStack[ErrorRecord]()
 
     /* an error is associated with an AST node to indicate where the error took place */
     private def logError(where: AST, err: Error): Unit = {
-        errors.push((err, where.loc))
+        errors.push(ErrorRecord(err, where.loc))
 
         /* this is helpful for debugging (to find out what function generated an error */
         if (verbose) {
@@ -313,9 +311,12 @@ class Checker(unmodifiedTable: SymbolTable, verbose: Boolean = false) {
             val spec = correctInvokable.args
 
             val astType = correctInvokable.retType.get
-            val retTypeCalleePoV = astType match {
+            val retTypeCalleePoV: UnpermissionedType = astType match {
                 case prim: PrimitiveType => return (prim, contextPrime)
-                case tr: UnpermissionedType => tr
+                case np: NonPrimitiveType => np.extractUnpermissionedType.get
+                case u: UnresolvedNonprimitiveType =>
+                    assert(false); NoPathType(JustContractType("ERROR"))
+                case b: BottomType => assert(false); NoPathType(JustContractType("ERROR"))
             }
 
             toCallerPoV(calleeToCaller, retTypeCalleePoV) match {
@@ -692,6 +693,8 @@ class Checker(unmodifiedTable: SymbolTable, verbose: Boolean = false) {
                                 return Left((ast, CannotConvertPathError(head, e, unpermissionedType))::Nil)
                             case Right(trNew) => NonPrimitiveType(table, fixUnpermissionedType(context, trNew), mods)
                         }
+                    case b@BottomType() => assert(false); BottomType()
+                    case u@UnresolvedNonprimitiveType(_, _) => assert(false); u
                 }
             })
 
@@ -813,6 +816,8 @@ class Checker(unmodifiedTable: SymbolTable, verbose: Boolean = false) {
                                 BottomType()
                             case Some(_) => typ
                         }
+                    case BottomType() => BottomType()
+                    case t => t
                 }
                 if (tDecl != BottomType()) {
                     checkIsSubtype(s, t, tDecl)
@@ -1289,7 +1294,7 @@ class Checker(unmodifiedTable: SymbolTable, verbose: Boolean = false) {
     def checkProgramAndPrintErrors(): Boolean = {
         val errs = checkProgram()
 
-        for ((err, loc) <- errs) {
+        for (ErrorRecord(err, loc) <- errs) {
             val msg = err.msg
             println(s"At $loc: $msg")
         }
@@ -1298,7 +1303,7 @@ class Checker(unmodifiedTable: SymbolTable, verbose: Boolean = false) {
     }
 
     /* just returns the errors from the program */
-    def checkProgram(): Seq[(Error, Position)] = {
+    def checkProgram(): Seq[ErrorRecord] = {
         for (contract <- globalTable.ast.contracts) {
             checkContract(contract)
         }

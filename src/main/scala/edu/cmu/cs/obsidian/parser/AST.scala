@@ -10,6 +10,7 @@ trait HasLocation {
     def setLoc(t: Token): this.type = { loc = t.pos; this }
     def setLoc(other: HasLocation): this.type = { loc = other.loc; this }
     def setLoc(id: (String, Position)): this.type = { loc = id._2; this }
+    def setLoc(pos: Position): this.type = { loc = pos; this }
 }
 
 sealed abstract class AST() extends HasLocation
