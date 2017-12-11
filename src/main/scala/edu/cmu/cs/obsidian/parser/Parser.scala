@@ -47,17 +47,22 @@ object Parser extends Parsers {
     }
 
     private def parseType: Parser[ObsidianType] = {
-        def parseDotPath: Parser[Seq[Identifier]] = DotT() ~ parseId ~ opt(parseDotPath) ^^ {
+        def parseDotPath: Parser[Seq[Identifier]] = DotT() ~ (parseId | ParentT()) ~ opt(parseDotPath) ^^ {
             case _ ~ ident ~ rest => {
+                val identifier: Identifier = ident match {
+                    case t: Token => (t.toString, t.pos)
+                    // For obscure type erasure reasons, a pattern match on Identifier type doesn't work.
+                    case ident => ident.asInstanceOf[Identifier]
+                }
                 rest match {
-                    case Some(path) => List(ident) ++ path
-                    case None => List(ident)
+                    case Some(path) => List(identifier) ++ path
+                    case None => List(identifier)
                 }
             }
         }
 
         val parseNonPrimitive: Parser[UnresolvedNonprimitiveType] =
-            rep(parseTypeModifier) ~ (parseId | ThisT()) ~ opt(parseDotPath) ^^ {
+            rep(parseTypeModifier) ~ (parseId | ThisT() | ParentT()) ~ opt(parseDotPath) ^^ {
                 case mods ~ id ~ path => {
                     val (identString, position: Position) = id match {
                         case t: Token => (t.toString, t.pos)
