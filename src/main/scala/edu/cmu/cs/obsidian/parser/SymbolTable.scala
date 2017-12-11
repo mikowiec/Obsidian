@@ -9,10 +9,10 @@ sealed trait DeclarationTable {
 
     /* merely returns "this" if this is a [ContractTable] already,
      * or gets the [ContractTable] of a [StateTable] */
-    def contract: ContractTable
+    def contractTable: ContractTable
+    def contract: Contract
 
     def ast: AST
-    def astRaw: AST
 
     /* looks for a contract called [name] that's in scope
      * (either globally or in this particular contract) */
@@ -43,20 +43,13 @@ class StateTable(
 
     assert(astNodeRaw != null)
 
-    private var astNode: State = _
-    private var fieldLookup: Map[String, Field] = _
-    private var txLookup: Map[String, Transaction] = _
-    private var funLookup: Map[String, Func] = _
+    private var astNode: State = astNodeRaw
+    private var fieldLookup: Map[String, Field] = indexDecl[ObsidianType, Field](ast.declarations, FieldDeclTag)
+    private var txLookup: Map[String, Transaction] = indexDecl[ObsidianType, Transaction](ast.declarations, TransactionDeclTag)
+    private var funLookup: Map[String, Func] = indexDecl[ObsidianType, Func](ast.declarations, FuncDeclTag)
 
-
-
-    def updateAstNode(ast: State): Unit = {
-        astNode = ast
-        assert(astNode != null)
-        fieldLookup = indexDecl[ObsidianType, Field](ast.declarations, FieldDeclTag)
-        txLookup = indexDecl[ObsidianType, Transaction](ast.declarations, TransactionDeclTag)
-        funLookup = indexDecl[ObsidianType, Func](ast.declarations, FuncDeclTag)
-    }
+    def contractTable: ContractTable = lexicallyInsideOf
+    def contract: Contract = lexicallyInsideOf.contract
 
     val fieldLookupRaw: Map[String, Field] = {
         indexDecl[ParsableType, Field](astNodeRaw.declarations, FieldDeclTag)
@@ -74,12 +67,9 @@ class StateTable(
 
     def simpleType = StateType(contract.name, astNodeRaw.name)
 
-    def astRaw : State = astNodeRaw
     def ast: State = astNode
 
-    def contract: ContractTable = lexicallyInsideOf
-
-    def lookupContract(name: String): Option[ContractTable] = contract.lookupContract(name)
+    def lookupContract(name: String): Option[ContractTable] = contractTable.lookupContract(name)
 
     def lookupField(name: String): Option[Field] = {
         fieldLookup.get(name) match {
@@ -121,10 +111,10 @@ class StateTable(
 }
 
 class ContractTable(
-        astNodeRaw: Contract,
+        val contract: Contract,
         symbolTable: SymbolTable,
         parentContract: Option[ContractTable]) extends DeclarationTable {
-    assert (astNodeRaw != null)
+    assert (contract != null)
 
     def this(astNodeRaw: Contract, symbolTable: SymbolTable) =
         this(astNodeRaw, symbolTable, None)
@@ -132,48 +122,41 @@ class ContractTable(
     def this(astNodeRaw: Contract, symbolTable: SymbolTable, parentContract: ContractTable) =
         this(astNodeRaw, symbolTable, Some(parentContract))
 
-    private var resolvedASTNode: Contract = _
-    private var fieldLookup: Map[String, Field] = _
-    private var txLookup: Map[String, Transaction] = _
-    private var funLookup: Map[String, Func] = _
+    private var fieldLookup: Map[String, Field] = indexDecl[ObsidianType, Field](contract.declarations, FieldDeclTag)
+    private var txLookup: Map[String, Transaction] = indexDecl[ObsidianType, Transaction](contract.declarations, TransactionDeclTag)
+    private var funLookup: Map[String, Func] = indexDecl[ObsidianType, Func](contract.declarations, FuncDeclTag)
 
     def simpleType = JustContractType(name)
 
-    def recordResolvedAST(ast: Contract): Unit = {
-        resolvedASTNode = ast
-        assert(ast != null)
-        fieldLookup = indexDecl[ObsidianType, Field](ast.declarations, FieldDeclTag)
-        txLookup = indexDecl[ObsidianType, Transaction](ast.declarations, TransactionDeclTag)
-        funLookup = indexDecl[ObsidianType, Func](ast.declarations, FuncDeclTag)
-    }
-
     val fieldLookupRaw: Map[String, Field] = {
-        indexDecl[ParsableType, Field](astNodeRaw.declarations, FieldDeclTag)
+        indexDecl[ParsableType, Field](contract.declarations, FieldDeclTag)
     }
 
     val txLookupRaw: Map[String, Transaction] = {
-        indexDecl[ParsableType, Transaction](astNodeRaw.declarations, TransactionDeclTag)
+        indexDecl[ParsableType, Transaction](contract.declarations, TransactionDeclTag)
     }
 
     val funLookupRaw: Map[String, Func] = {
-        indexDecl[ParsableType, Func](astNodeRaw.declarations, FuncDeclTag)
+        indexDecl[ParsableType, Func](contract.declarations, FuncDeclTag)
     }
 
     val stateLookup: Map[String, StateTable] = {
-        indexDecl[ParsableType, State](astNodeRaw.declarations, StateDeclTag).mapValues(
+        indexDecl[ParsableType, State](contract.declarations, StateDeclTag).mapValues(
             (st: State) => new StateTable(st, this)
         )
     }
 
     val childContractLookup: Map[String, ContractTable] = {
-        indexDecl[ParsableType, Contract](astNodeRaw.declarations, ContractDeclTag).mapValues(
+        indexDecl[ParsableType, Contract](contract.declarations, ContractDeclTag).mapValues(
             (ct: Contract) => new ContractTable(ct, symbolTable, this)
         )
     }
 
-    def name: String = this.ast.name
+    val contractTable: ContractTable = this
 
-    def contract: ContractTable = this
+    def ast: AST = contract
+
+    def name: String = this.contract.name
 
     /* resolves a contract from the point of view of this contract. Two cases:
      * 1) [name] refers to a global contract and it's in the symbol table
@@ -188,8 +171,6 @@ class ContractTable(
         }
     }
 
-    def ast: Contract = if (resolvedASTNode != null) resolvedASTNode else astNodeRaw
-    def astRaw: Contract = astNodeRaw
     def lookupField(name: String): Option[Field] = fieldLookup.get(name)
     def lookupTransaction(name: String): Option[Transaction] = txLookup.get(name)
     def lookupFunction(name: String): Option[Func] = funLookup.get(name)
@@ -207,7 +188,7 @@ class ContractTable(
     def hasParent: Boolean = parent.isDefined
 
     def constructors: Seq[Constructor] = {
-        ast.declarations.filter(_.tag == ConstructorDeclTag)
+        contract.declarations.filter(_.tag == ConstructorDeclTag)
                         .map(_.asInstanceOf[Constructor])
     }
 }

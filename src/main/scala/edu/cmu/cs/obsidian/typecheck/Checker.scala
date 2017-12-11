@@ -350,7 +350,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
                   * is returned, and the actual type stays in the variable */
                  (context("this").residualType, context)
              case Parent() =>
-                 val thisTable = context.tableOfThis.contract
+                 val thisTable = context.tableOfThis.contractTable
                  if (thisTable.hasParent) {
                      val parentTable = thisTable.parent.get
                      val ts = parentTable.simpleType
@@ -879,7 +879,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
                 contextPrime.makeThrown
 
             case Transition(newStateName, updates: Seq[(Variable, Expression)]) =>
-                val thisTable = context.tableOfThis.contract
+                val thisTable = context.tableOfThis.contractTable
 
                 if (thisTable.state(newStateName).isEmpty) {
                     logError(s, StateUndefinedError(thisTable.name, newStateName))
@@ -1022,18 +1022,18 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
                         return contextPrime
                 }
 
-                val ContractTable = t.tableOpt.get.contract
+                val contractTable = t.tableOpt.get.contractTable
 
                 var mergedContext = contextPrime
                 for (SwitchCase(sName, body) <- cases) {
                     val newType =
-                        ContractTable.state(sName) match {
+                        contractTable.state(sName) match {
                             case Some(stTable) =>
-                                val newSimple = StateType(ContractTable.name, stTable.name)
+                                val newSimple = StateType(contractTable.name, stTable.name)
                                 updatedSimpleType(t, newSimple)
                             case None =>
-                                logError(s, StateUndefinedError(ContractTable.name, sName))
-                                val newSimple = JustContractType(ContractTable.name)
+                                logError(s, StateUndefinedError(contractTable.name, sName))
+                                val newSimple = JustContractType(contractTable.name)
                                 updatedSimpleType(t, newSimple)
                         }
 
@@ -1110,7 +1110,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
     }
 
     private def unpermissionedTypeOfThis(lexicallyInsideOf: DeclarationTable): UnpermissionedType = {
-        if (lexicallyInsideOf.contract.hasParent) {
+        if (lexicallyInsideOf.contractTable.hasParent) {
             PathType("this"::"parent"::Nil, lexicallyInsideOf.simpleType)
         } else {
             NoPathType(lexicallyInsideOf.simpleType)
@@ -1139,7 +1139,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
         // Check that all the states the transaction can end in are valid, named states
         if (tx.endsInState.isDefined) {
             for (state <- tx.endsInState.get) {
-                val stateTableOpt = lexicallyInsideOf.contract.state(state._1)
+                val stateTableOpt = lexicallyInsideOf.contractTable.state(state._1)
                 stateTableOpt match {
                     case None => logError(tx, StateUndefinedError(lexicallyInsideOf.contract.name, state._1))
                     case Some(_) => ()
@@ -1182,7 +1182,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
         if (tx.availableIn.isDefined) {
             // We could be in any of the given states. Typecheck as if we were in each one.
             for (containingStateName <- tx.availableIn.get) {
-                val stateTableOpt = lexicallyInsideOf.contract.state(containingStateName._1)
+                val stateTableOpt = lexicallyInsideOf.contractTable.state(containingStateName._1)
                 stateTableOpt match {
                     case None => logError(tx, StateUndefinedError(lexicallyInsideOf.contract.name, containingStateName._1))
                     case Some(stateTable) =>
@@ -1210,7 +1210,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
         for (decl <- state.declarations) {
             decl match {
                 case t: Transaction => checkTransaction(t, table)
-                case f: Field => checkField(f, table.contract)
+                case f: Field => checkField(f, table.contractTable)
                 case _ => () // TODO
             }
         }
@@ -1248,7 +1248,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
         // Check that all the states the constructor can end in are valid, named states
         if (constr.endsInState.isDefined) {
             for (stateName <- constr.endsInState.get.map(_._1)) {
-                val stateTableOpt = table.contract.state(stateName)
+                val stateTableOpt = table.contractTable.state(stateName)
                 stateTableOpt match {
                     case None => logError(constr, StateUndefinedError(table.contract.name, stateName))
                     case Some(_) => ()

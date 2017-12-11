@@ -21,24 +21,31 @@ object AstTransformer {
 
     def transformProgram(table: SymbolTable): (SymbolTable, Seq[ErrorRecord]) = {
         var errorRecords = List.empty[ErrorRecord]
-        for (c <- table.ast.contracts.map(_.name)) {
-            errorRecords = errorRecords ++ transformContract(table, table.contract(c).get)
-        }
-        val newImports = table.ast.imports.map(_.copy())
+        var contracts = List.empty[Contract]
 
-        val newContracts = table.ast.contracts.map(c => table.contract(c.name).get.ast)
-        val newProgram = table.ast.copy(imports = newImports, contracts = newContracts)
+        for ((contractName, contractTable) <- table.contractLookup) {
+            val (newContract, errors) = transformContract(table, contractTable)
+            errorRecords = errorRecords ++ errors
+            contracts = contracts :+ newContract
+        }
+
+        val newProgram = Program(table.ast.imports, contracts)
 
         /* to make this faster, we could just mutate the AST nodes instead of
          * making the symbol table again entirely */
+        /*
+        val newTable = new SymbolTable(newProgram)
+        newTable.recordResolvedAST(newProgram)
         (new SymbolTable(newProgram), errorRecords)
-        //table.updateAstNode(newProgram)
+        */
+        table.recordResolvedAST(newProgram)
+        (table, errorRecords) // We transformed the program, so just use the old table too.
     }
 
-    def transformContract(table: SymbolTable, cTable: ContractTable): Seq[ErrorRecord] = {
+    def transformContract(table: SymbolTable, cTable: ContractTable): (Contract, Seq[ErrorRecord]) = {
         var newDecls: Seq[Declaration] = Nil
         var errors = List.empty[ErrorRecord]
-        for (d <- cTable.astRaw.declarations) {
+        for (d <- cTable.contract.declarations) {
             val newDecl: Declaration = d.tag match {
                 case TransactionDeclTag =>
                     val (newTransaction, newErrors) = transformTransaction(table, cTable, d.asInstanceOf[Transaction])
@@ -58,13 +65,14 @@ object AstTransformer {
                     newField
                 case StateDeclTag =>
                     val stateTable = cTable.state(d.asInstanceOf[State].name).get
-                    val newErrors = transformState(table, stateTable)
+                    val (newState, newErrors) = transformState(table, stateTable)
                     errors = errors ++ newErrors
-                    stateTable.ast
+                    newState
                 case ContractDeclTag =>
                     val contractTable = cTable.childContract(d.asInstanceOf[Contract].name).get
-                    errors = errors ++ transformContract(table, contractTable)
-                    contractTable.ast
+                    val (newContract, newErrors) = transformContract(table, contractTable)
+                    errors = errors ++ newErrors
+                    newContract
                 case TypeDeclTag => null
             }
             newDecls = newDecl +: newDecls
@@ -72,16 +80,16 @@ object AstTransformer {
 
         newDecls = newDecls.reverse
 
-        val newContract = cTable.astRaw.copy(declarations = newDecls)
-        cTable.recordResolvedAST(newContract)
-        errors.reverse
+        val newContract = Contract(cTable.contract.mod, cTable.contract.name, newDecls)
+
+        (newContract, errors.reverse)
     }
 
-    def transformState(table: SymbolTable, sTable: StateTable): Seq[ErrorRecord] = {
+    def transformState(table: SymbolTable, sTable: StateTable): (State, Seq[ErrorRecord]) = {
         var newDecls: Seq[Declaration] = Nil
         var errors = List.empty[ErrorRecord]
 
-        for (d <- sTable.astRaw.declarations) {
+        for (d <- sTable.ast.declarations) {
             val (newDecl, newErrors) = d.tag match {
                 case TransactionDeclTag =>
                     transformTransaction(table, sTable, d.asInstanceOf[Transaction])
@@ -101,9 +109,8 @@ object AstTransformer {
 
         newDecls = newDecls.reverse
 
-        val newContract = sTable.astRaw.copy(declarations = newDecls)
-        sTable.updateAstNode(newContract)
-        errors.reverse
+        val newState = sTable.ast.copy(declarations = newDecls)
+        (newState, errors.reverse)
     }
 
     def transformField(
@@ -507,9 +514,9 @@ object AstTransformer {
             val pathRest = t.identifiers.tail
 
             if (pathHead == "parent") {
-                if (lexicallyInsideOf.contract.hasParent) {
+                if (lexicallyInsideOf.contractTable.hasParent) {
                     val tNew = t.copy(identifiers = pathRest)
-                    val newInsideOf = lexicallyInsideOf.contract.parent.get
+                    val newInsideOf = lexicallyInsideOf.contractTable.parent.get
                     val result = resolveNonPrimitiveTypeNoContext(table, newInsideOf, tNew, visitedFields, pos)
                     appendToPath("parent", result)
                 } else {
