@@ -28,7 +28,7 @@ class TypeCheckerTests extends JUnitSuite {
         val checker = new Checker(table)
         val errs = checker.checkProgram()
         val remaining = new ArrayBuffer[(Error, LineNumber)]() ++ expectedErrors
-        for ((err, loc) <- errs) {
+        for (ErrorRecord(err, loc) <- errs) {
             val pred = (expected: (Error, LineNumber)) => {
                 expected._1 == err && expected._2 == loc.line
             }
