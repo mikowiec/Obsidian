@@ -437,7 +437,11 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
                          logError(e, NonInvokeableError(receiverType))
                          return (BottomType(), contextPrime)
                      // [get] is safe because [receiverType] must be non-primitive
-                     case _ => receiverType.tableOpt.get
+                     case _ =>
+                         if (receiverType.tableOpt.isDefined)
+                             receiverType.tableOpt.get
+                         else
+                             return (BottomType(), contextPrime)
                  }
 
                  handleInvocation(contextPrime, receiverTable, name, receiver, args)
@@ -1070,7 +1074,11 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
                     case IntType() | BoolType() | StringType() =>
                         logError(s, NonInvokeableError(receiverType))
                         return contextPrime
-                    case _ => receiverType.tableOpt.get
+                    case _ =>
+                        if (receiverType.tableOpt.isDefined)
+                            receiverType.tableOpt.get
+                        else
+                            return contextPrime
                 }
 
                 handleInvocation(contextPrime, receiverTable, name, receiver, args)
