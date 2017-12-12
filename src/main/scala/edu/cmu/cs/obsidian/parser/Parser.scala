@@ -80,9 +80,9 @@ object Parser extends Parsers {
         }
 
 
-        val intPrim = IntT() ^^ { t => IntType() }
-        val boolPrim = BoolT() ^^ { t => BoolType() }
-        val stringPrim = StringT() ^^ { t => StringType() }
+        val intPrim = IntT() ^^ { t => IntType().setLoc(t) }
+        val boolPrim = BoolT() ^^ { t => BoolType().setLoc(t) }
+        val stringPrim = StringT() ^^ { t => StringType().setLoc(t) }
 
         parseNonPrimitive | intPrim | boolPrim | stringPrim
     }

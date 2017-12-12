@@ -216,7 +216,7 @@ object AstTransformer {
         }
         val (newTransactionBody, _, bodyErrors) =  transformBody(table, lexicallyInsideOf, context, t.body)
         val newTransaction = t.copy(retType = newRetType, args = newArgs, ensures = newEnsures,
-            body = newTransactionBody)
+            body = newTransactionBody).setLoc(t)
         (newTransaction, retTypeErrors ++ argErrors ++ bodyErrors)
     }
 
