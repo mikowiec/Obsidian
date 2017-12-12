@@ -80,7 +80,7 @@ object AstTransformer {
 
         newDecls = newDecls.reverse
 
-        val newContract = Contract(cTable.contract.mod, cTable.contract.name, newDecls)
+        val newContract = Contract(cTable.contract.mod, cTable.contract.name, newDecls).setLoc(cTable.contract)
 
         (newContract, errors.reverse)
     }
@@ -127,43 +127,43 @@ object AstTransformer {
             case v: Variable => v.copy()
             case n: NumLiteral => n.copy()
             case s: StringLiteral => s.copy()
-            case _: TrueLiteral => TrueLiteral()
-            case _: FalseLiteral => FalseLiteral()
-            case _: This => This()
-            case _: Parent => Parent()
+            case t: TrueLiteral => TrueLiteral().setLoc(t)
+            case f: FalseLiteral => FalseLiteral().setLoc(f)
+            case t: This => This().setLoc(t)
+            case p: Parent => Parent().setLoc(p)
             case c: Conjunction =>
-                Conjunction(transformExpression(c.e1), transformExpression(c.e2))
+                Conjunction(transformExpression(c.e1), transformExpression(c.e2)).setLoc(c)
             case d: Disjunction =>
-                Disjunction(transformExpression(d.e1), transformExpression(d.e2))
+                Disjunction(transformExpression(d.e1), transformExpression(d.e2)).setLoc(d)
             case n: LogicalNegation =>
-                LogicalNegation(transformExpression(n.e))
+                LogicalNegation(transformExpression(n.e)).setLoc(n)
             case a: Add =>
-                Add(transformExpression(a.e1), transformExpression(a.e2))
+                Add(transformExpression(a.e1), transformExpression(a.e2)).setLoc(a)
             case s: Subtract =>
-                Subtract(transformExpression(s.e1), transformExpression(s.e2))
+                Subtract(transformExpression(s.e1), transformExpression(s.e2)).setLoc(s)
             case d: Divide =>
-                Divide(transformExpression(d.e1), transformExpression(d.e2))
+                Divide(transformExpression(d.e1), transformExpression(d.e2)).setLoc(d)
             case m: Multiply =>
-                Multiply(transformExpression(m.e1), transformExpression(m.e2))
+                Multiply(transformExpression(m.e1), transformExpression(m.e2)).setLoc(m)
             case eq: Equals =>
-                Equals(transformExpression(eq.e1), transformExpression(eq.e2))
+                Equals(transformExpression(eq.e1), transformExpression(eq.e2)).setLoc(eq)
             case g: GreaterThan =>
-                GreaterThan(transformExpression(g.e1), transformExpression(g.e2))
+                GreaterThan(transformExpression(g.e1), transformExpression(g.e2)).setLoc(g)
             case g: GreaterThanOrEquals =>
-                GreaterThanOrEquals(transformExpression(g.e1), transformExpression(g.e2))
+                GreaterThanOrEquals(transformExpression(g.e1), transformExpression(g.e2)).setLoc(g)
             case l: LessThan =>
-                LessThan(transformExpression(l.e1), transformExpression(l.e2))
+                LessThan(transformExpression(l.e1), transformExpression(l.e2)).setLoc(l)
             case l: LessThanOrEquals =>
-                LessThanOrEquals(transformExpression(l.e1), transformExpression(l.e2))
+                LessThanOrEquals(transformExpression(l.e1), transformExpression(l.e2)).setLoc(l)
             case ne: NotEquals =>
-                NotEquals(transformExpression(ne.e1), transformExpression(ne.e2))
+                NotEquals(transformExpression(ne.e1), transformExpression(ne.e2)).setLoc(ne)
             case d: Dereference => d.copy(e = transformExpression(d.e))
             case i: LocalInvocation =>
-                i.copy(args = i.args.map(eArg => transformExpression(eArg)))
+                i.copy(args = i.args.map(eArg => transformExpression(eArg))).setLoc(i)
             case i: Invocation =>
-                i.copy(recipient = transformExpression(i.recipient), args = i.args.map(eArg => transformExpression(eArg)))
+                i.copy(recipient = transformExpression(i.recipient), args = i.args.map(eArg => transformExpression(eArg))).setLoc(i)
             case c: Construction =>
-                c.copy(args = c.args.map(eArg => transformExpression(eArg)))
+                c.copy(args = c.args.map(eArg => transformExpression(eArg))).setLoc(c)
         }
     }
 
@@ -230,7 +230,7 @@ object AstTransformer {
         var (newBody, _, bodyTransformErrors) = transformBody(table, lexicallyInsideOf, context, c.body)
         val errors = argsTransformErrors ++ bodyTransformErrors
 
-        (c.copy(args = newArgs, body = newBody), errors)
+        (c.copy(args = newArgs, body = newBody).setLoc(c), errors)
     }
 
     def transformFunc(
@@ -285,16 +285,17 @@ object AstTransformer {
                 val (newTyp, errors) = transformType(table, lexicallyInsideOf, context, typ, s.loc)
                 val newDecl = oldDecl.copy(typ = newTyp, e = transformExpression(e)).setLoc(oldDecl)
                 (newDecl, context.updated(varName, typ), errors)
-            case Return() => (Return(), context, Seq())
-            case ReturnExpr(e) => (transformExpression(e), context, Seq())
-            case Transition(newStateName, updates) =>
+            case r@Return() => (r, context, Seq())
+            case r@ReturnExpr(e) => (ReturnExpr(transformExpression(e)).setLoc(r), context, Seq())
+            case t@Transition(newStateName, updates) =>
                 var transformedUpdates = List.empty[(Variable, Expression)]
                 for ((v, e) <- updates) {
                     transformedUpdates = List((v, transformExpression(e))) ++ transformedUpdates
                 }
-                (Transition(newStateName, transformedUpdates), context, Seq())
-            case Assignment(assignTo, e) => (Assignment(transformExpression(assignTo), transformExpression(e)), context, Seq())
-            case Throw() => (Throw(), context, Seq())
+                (Transition(newStateName, transformedUpdates).setLoc(t), context, Seq())
+            case a@Assignment(assignTo, e) =>
+                (Assignment(transformExpression(assignTo), transformExpression(e)).setLoc(a), context, Seq())
+            case t@Throw() => (t, context, Seq())
             case oldIf@If(eCond, sIf) =>
                 val (sIfNew, newContext, errors) = transformBody(table, lexicallyInsideOf, context, sIf)
                 val newIf = oldIf.copy(s = sIfNew, eCond = transformExpression(eCond)).setLoc(oldIf)
@@ -338,19 +339,20 @@ object AstTransformer {
         // We should only be transforming potentially-unresolved types, but we can't specify that statically because ASTs are used for resolved types too.
         assert(t.isInstanceOf[PotentiallyUnresolvedType]);
         t match {
-            case BoolType() => (BoolType(), List.empty[ErrorRecord])
-            case IntType() => (IntType(), List.empty[ErrorRecord])
-            case StringType() => (StringType(), List.empty[ErrorRecord])
+            case t@BoolType() => (t, List.empty[ErrorRecord])
+            case t@IntType() => (t, List.empty[ErrorRecord])
+            case t@StringType() => (t, List.empty[ErrorRecord])
             case nonPrim@UnresolvedNonprimitiveType(mods, ids) =>
                 val tCanonified: UnresolvedNonprimitiveType = canonifyParsableType(table, context, nonPrim)
                 val result: TraverseResult = resolveNonPrimitiveTypeContext(table, lexicallyInsideOf, tCanonified,
                                                             new TreeSet(), context, pos)
+
                 result match {
-                    case Left(err) => (BottomType(), List(ErrorRecord(err, pos)))
+                    case Left(err) => (BottomType().setLoc(t), List(ErrorRecord(err, pos)))
                     case Right((unpermissionedType, declTable)) =>
-                        (NonPrimitiveType(declTable, unpermissionedType, nonPrim.mods), List.empty)
+                        (NonPrimitiveType(declTable, unpermissionedType, nonPrim.mods).setLoc(t), List.empty)
                 }
-            case BottomType() => (BottomType(), List.empty)
+            case b@BottomType() => (b, List.empty)
             case np: NonPrimitiveType => (np, List.empty)
         }
     }

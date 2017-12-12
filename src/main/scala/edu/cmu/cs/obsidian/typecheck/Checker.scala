@@ -52,6 +52,7 @@ class Checker(globalTable: SymbolTable, verbose: Boolean = false) {
 
     /* an error is associated with an AST node to indicate where the error took place */
     private def logError(where: AST, err: Error): Unit = {
+        assert(where.loc.line >= 1)
         errors.push(ErrorRecord(err, where.loc))
 
         /* this is helpful for debugging (to find out what function generated an error */

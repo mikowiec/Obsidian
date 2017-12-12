@@ -256,8 +256,7 @@ object Main {
             val ast = Parser.parseFileAtPath(filename, options.printTokens)
 
             if (options.printAST) {
-                println("AST")
-                println()
+                println("AST:")
                 println(ast)
                 println()
             }
