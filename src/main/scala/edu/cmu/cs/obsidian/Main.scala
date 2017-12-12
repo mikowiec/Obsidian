@@ -264,10 +264,18 @@ object Main {
             val table = new SymbolTable(ast)
             val (globalTable: SymbolTable, transformErrors) = AstTransformer.transformProgram(table)
 
+            if (options.printAST) {
+                println("Transformed AST:")
+                println(ast)
+                println()
+            }
+
+            println("Transform errors:");
             for (error <- transformErrors) {
                 error.printMessage()
             }
 
+            println("Typechecker errors:");
             val checker = new Checker(globalTable, options.typeCheckerDebug)
             if (!checker.checkProgramAndPrintErrors() || !transformErrors.isEmpty) {
                 println("Typechecking failed.\n")
