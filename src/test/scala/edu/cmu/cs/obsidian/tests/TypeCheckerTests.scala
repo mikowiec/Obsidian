@@ -173,11 +173,9 @@ class TypeCheckerTests extends JUnitSuite {
               ::
               (UnreachableCodeError(), 22)
               ::
-              (UnusedOwnershipError("cs"), 32)
-              ::
               (SubTypingError(
-                  NonPrimitiveType(null, NoPathType(JustContractType("C_Owned")), Set(IsOwned())),
-                  NonPrimitiveType(null, NoPathType(StateType("C_Owned", "S")), Set(IsOwned()))),
+                  NonPrimitiveType(null, NoPathType(JustContractType("C_Owned")), Set()),
+                  NonPrimitiveType(null, NoPathType(StateType("C_Owned", "S")), Set())),
                 28)
               ::
               (UnreachableCodeError(), 28)
@@ -185,7 +183,7 @@ class TypeCheckerTests extends JUnitSuite {
               (MustReturnError("t_ret_nonprimitive"), 30)
               ::
               (SubTypingError(IntType(),
-                  NonPrimitiveType(null, NoPathType(JustContractType("C_Owned")), Set(IsOwned()))), 32)
+                  NonPrimitiveType(null, NoPathType(JustContractType("C_Owned")), Set())), 32)
               ::
               (MustReturnError("no_return"), 38)
               ::
