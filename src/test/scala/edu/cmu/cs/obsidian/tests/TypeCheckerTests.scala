@@ -25,8 +25,11 @@ class TypeCheckerTests extends JUnitSuite {
         }
 
         val table = new SymbolTable(prog)
-        val checker = new Checker(table)
-        val errs = checker.checkProgram()
+        val (globalTable: SymbolTable, transformErrors) = AstTransformer.transformProgram(table)
+
+        val checker = new Checker(globalTable)
+        val errs = checker.checkProgram() ++ transformErrors
+
         val remaining = new ArrayBuffer[(Error, LineNumber)]() ++ expectedErrors
         for (ErrorRecord(err, loc) <- errs) {
             val pred = (expected: (Error, LineNumber)) => {
