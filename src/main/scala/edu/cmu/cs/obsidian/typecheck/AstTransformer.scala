@@ -157,7 +157,7 @@ object AstTransformer {
                 LessThanOrEquals(transformExpression(l.e1), transformExpression(l.e2)).setLoc(l)
             case ne: NotEquals =>
                 NotEquals(transformExpression(ne.e1), transformExpression(ne.e2)).setLoc(ne)
-            case d: Dereference => d.copy(e = transformExpression(d.e))
+            case d: Dereference => d.copy(e = transformExpression(d.e)).setLoc(d)
             case i: LocalInvocation =>
                 i.copy(args = i.args.map(eArg => transformExpression(eArg))).setLoc(i)
             case i: Invocation =>
