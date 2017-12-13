@@ -119,7 +119,7 @@ object AstTransformer {
             f: Field): (Field, Seq[ErrorRecord]) = {
         val context = startContext(lexicallyInsideOf, List.empty)
         val (newType, errors) = transformType(table, lexicallyInsideOf, context, f.typ, f.loc)
-        (f.copy(typ = newType), errors)
+        (f.copy(typ = newType).setLoc(f), errors)
     }
 
     def transformExpression(e: Expression): Expression = {
