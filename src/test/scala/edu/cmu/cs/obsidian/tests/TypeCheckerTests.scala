@@ -142,7 +142,7 @@ class TypeCheckerTests extends JUnitSuite {
             (SubTypingError(BoolType(), IntType()), 25)
               ::
               (SubTypingError(
-                  NonPrimitiveType(null, NoPathType(JustContractType("C_Owned")), Set(IsOwned())),
+                  NonPrimitiveType(null, NoPathType(JustContractType("C_Owned")), Set()),
                   NonPrimitiveType(null, NoPathType(JustContractType("C_Shared")), Set())),
                 28)
               ::
