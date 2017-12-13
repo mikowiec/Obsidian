@@ -124,9 +124,9 @@ object AstTransformer {
 
     def transformExpression(e: Expression): Expression = {
         e match {
-            case v: Variable => v.copy()
-            case n: NumLiteral => n.copy()
-            case s: StringLiteral => s.copy()
+            case v: Variable => v
+            case n: NumLiteral => n
+            case s: StringLiteral => s
             case t: TrueLiteral => TrueLiteral().setLoc(t)
             case f: FalseLiteral => FalseLiteral().setLoc(f)
             case t: This => This().setLoc(t)
