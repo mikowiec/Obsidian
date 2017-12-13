@@ -36,9 +36,13 @@ class TypeCheckerTests extends JUnitSuite {
                 expected._1 == err && expected._2 == loc.line
             }
             val line = loc.line
-            assertTrue(s"Nothing matches $err at line $line", remaining.exists(pred))
-            val indexToRemove = remaining.indexOf((err, loc.line))
-            remaining.remove(indexToRemove)
+            val indexOfError = remaining.indexWhere(pred)
+            if (indexOfError < 0) {
+                assertTrue(s"Unexpected error: $err at line $line", false)
+            }
+            else {
+                remaining.remove(indexOfError)
+            }
         }
         val msg = s"The following errors weren't found when checking: $remaining"
         assertTrue(msg, remaining.isEmpty)
