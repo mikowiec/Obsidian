@@ -10,4 +10,4 @@ jdk:
 
 before_install:
   - sudo apt-get -qq update
-  - sudo apt-get install -y protoc
+  - sudo apt-get install -y protobuf
