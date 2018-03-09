@@ -1,3 +1,5 @@
+dist: trusty
+sudo: false
 language: scala
 scala:
     - 2.12.4
@@ -8,6 +10,7 @@ scala:
 jdk:
   - oraclejdk8
 
-before_install:
-  - sudo apt-get -qq update
-  - sudo apt-get install -y protobuf
+addons:
+  apt:
+    packages:
+      - libprotoc-dev
